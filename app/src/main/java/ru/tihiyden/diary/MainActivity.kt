@@ -87,6 +87,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
     var mediaEditor by rememberSaveable(stateSaver = MediaEntrySaver) { mutableStateOf<MediaEntry?>(null) }
     var themePicker by rememberSaveable { mutableStateOf(false) }
     var holidayPicker by rememberSaveable { mutableStateOf(false) }
+    var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(selectedDay, section, today, holidaySettings) {
         if (section == Section.CALENDAR) holidayVm.loadYear(LocalDate.parse(selectedDay).year)
@@ -110,7 +111,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
                 Section.entries.forEach { item ->
                     NavigationDrawerItem(
                         label = { Text(item.title) }, selected = item == section,
-                        onClick = { sectionName = item.name; scope.launch { drawer.close() } },
+                        onClick = { sectionName = item.name; deleteId = null; scope.launch { drawer.close() } },
                         icon = { Icon(item.icon, null) },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                     )
@@ -162,13 +163,48 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
                 if (!ready) {
                     Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { CircularProgressIndicator() }
                 } else when (section) {
-                    Section.CALENDAR -> CalendarScreen(data.entries, LocalDate.parse(selectedDay), { selectedDay = it.toString() }, { entryEditor = it }, vm::toggle, holidays, holidaySettings) { holidayPicker = true }
-                    Section.THOUGHTS -> ThoughtsScreen(data.thoughts) { thoughtEditor = it }
-                    Section.MEDIA -> MediaScreen(data.media, mediaKind, { mediaKindName = it.name }) { mediaEditor = it }
+                    Section.CALENDAR -> CalendarScreen(
+                        data.entries, LocalDate.parse(selectedDay), { selectedDay = it.toString() }, { entryEditor = it },
+                        vm::toggle, holidays, holidaySettings, onDeleteRequest = { deleteId = it.id },
+                        onHolidaySettings = { holidayPicker = true },
+                    )
+                    Section.THOUGHTS -> ThoughtsScreen(data.thoughts, onEdit = { thoughtEditor = it }, onDeleteRequest = { deleteId = it.id })
+                    Section.MEDIA -> MediaScreen(data.media, mediaKind, { mediaKindName = it.name }, onEdit = { mediaEditor = it }, onDeleteRequest = { deleteId = it.id })
                     Section.BACKUP -> BackupScreen(data, vm)
                 }
             }
         }
+    }
+
+    if (ready) deleteId?.let { id ->
+        val deletion = when (section) {
+            Section.CALENDAR -> data.entries.firstOrNull { it.id == id }?.let { entry ->
+                RecordDeletion(
+                    question = if (entry.kind == EntryKind.TASK) "Удалить задачу?" else "Удалить событие?",
+                    preview = entry.title,
+                    delete = { vm.delete(entry) {} },
+                    spansDays = entry.lastDay > entry.date,
+                )
+            }
+            Section.THOUGHTS -> data.thoughts.firstOrNull { it.id == id }?.let { thought ->
+                RecordDeletion("Удалить мысль?", thought.text, delete = { vm.delete(thought) {} })
+            }
+            Section.MEDIA -> data.media.firstOrNull { it.id == id }?.let { item ->
+                val question = when (item.kind) {
+                    MediaKind.BOOK -> "Удалить книгу?"
+                    MediaKind.MOVIE -> "Удалить фильм?"
+                    MediaKind.SERIES -> "Удалить сериал?"
+                }
+                RecordDeletion(question, item.title, delete = { vm.delete(item) {} })
+            }
+            Section.BACKUP -> null
+        }
+        if (deletion != null) RecordDeletionDialog(deletion, !working, onDismiss = { deleteId = null }, onConfirm = {
+            if (deleteId == id) {
+                deleteId = null
+                deletion.delete()
+            }
+        })
     }
 
     if (themePicker) ThemePicker { themePicker = false }

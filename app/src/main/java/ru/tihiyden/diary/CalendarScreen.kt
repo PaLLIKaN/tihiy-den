@@ -50,7 +50,7 @@ private val EventTint = Color(0xFFF2E9FB)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (LocalDate) -> Unit, onEdit: (DayEntry) -> Unit, onToggle: (DayEntry) -> Unit, holidayState: HolidayUiState = HolidayUiState(), holidaySettings: HolidaySettings = HolidaySettings(), onHolidaySettings: () -> Unit = {}) {
+fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (LocalDate) -> Unit, onEdit: (DayEntry) -> Unit, onToggle: (DayEntry) -> Unit, holidayState: HolidayUiState = HolidayUiState(), holidaySettings: HolidaySettings = HolidaySettings(), onDeleteRequest: ((DayEntry) -> Unit)? = null, onHolidaySettings: () -> Unit = {}) {
     val month = YearMonth.from(selected)
     val today = LocalDate.now()
     val days = remember(month) { calendarDays(month) }
@@ -197,7 +197,10 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
         items(visibleEntries, key = { it.id }) { entry ->
             val isTask = entry.kind == EntryKind.TASK
             val entryColor = if (isTask) TaskInk else EventInk
-            Surface(onClick = { onEdit(entry) }, shape = RoundedCornerShape(20.dp), color = if (isTask) TaskTint else EventTint, contentColor = Ink) {
+            Surface(
+                modifier = Modifier.recordActions({ onEdit(entry) }, onDeleteRequest?.let { request -> { request(entry) } }),
+                shape = RecordCardShape, color = if (isTask) TaskTint else EventTint, contentColor = Ink,
+            ) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (isTask) Checkbox(checked = entry.done, onCheckedChange = { onToggle(entry) }, colors = CheckboxDefaults.colors(checkedColor = entryColor, uncheckedColor = entryColor), modifier = Modifier.semantics { contentDescription = "Выполнено: ${entry.title}" })
                     else Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Schedule, null, tint = entryColor) }

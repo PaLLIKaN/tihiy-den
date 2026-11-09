@@ -13,8 +13,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class DiaryViewModel(application: Application) : AndroidViewModel(application) {
-    private val store = DiaryStore(application)
+class DiaryViewModel internal constructor(application: Application, private val store: DiaryStore) : AndroidViewModel(application) {
+    constructor(application: Application) : this(application, DiaryStore(application))
     private val mutex = Mutex()
     private val _data = MutableStateFlow(DiaryData())
     val data = _data.asStateFlow()

@@ -27,7 +27,7 @@ fun timestamp(value: Long): String = Instant.ofEpochMilli(value).atZone(ZoneId.s
     .format(DateTimeFormatter.ofPattern("d MMMM yyyy · HH:mm", Russian))
 
 @Composable
-fun ThoughtsScreen(thoughts: List<Thought>, onEdit: (Thought) -> Unit) {
+fun ThoughtsScreen(thoughts: List<Thought>, onEdit: (Thought) -> Unit, onDeleteRequest: ((Thought) -> Unit)? = null) {
     var query by rememberSaveable { mutableStateOf("") }
     val filtered = remember(thoughts, query) { thoughts.filter { it.text.contains(query.trim(), ignoreCase = true) } }
     Column {
@@ -38,7 +38,10 @@ fun ThoughtsScreen(thoughts: List<Thought>, onEdit: (Thought) -> Unit) {
                     if (query.isBlank()) "Идея, маленькое наблюдение\nили несколько слов о сегодняшнем дне." else "Попробуйте другие слова.")
             }
             items(filtered, key = { it.id }) { thought ->
-                Surface(onClick = { onEdit(thought) }, color = MaterialTheme.colorScheme.surfaceContainerLowest, shape = RoundedCornerShape(20.dp)) {
+                Surface(
+                    modifier = Modifier.recordActions({ onEdit(thought) }, onDeleteRequest?.let { request -> { request(thought) } }),
+                    color = MaterialTheme.colorScheme.surfaceContainerLowest, shape = RecordCardShape,
+                ) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text(thought.text, style = MaterialTheme.typography.bodyLarge, maxLines = 8, overflow = TextOverflow.Ellipsis)
                         Text(timestamp(thought.createdAt), style = MaterialTheme.typography.labelSmall, color = Muted.copy(alpha = .75f), modifier = Modifier.padding(top = 16.dp))
@@ -51,7 +54,7 @@ fun ThoughtsScreen(thoughts: List<Thought>, onEdit: (Thought) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MediaScreen(media: List<MediaEntry>, kind: MediaKind, onKind: (MediaKind) -> Unit, onEdit: (MediaEntry) -> Unit) {
+fun MediaScreen(media: List<MediaEntry>, kind: MediaKind, onKind: (MediaKind) -> Unit, onEdit: (MediaEntry) -> Unit, onDeleteRequest: ((MediaEntry) -> Unit)? = null) {
     var query by rememberSaveable { mutableStateOf("") }
     var statusName by rememberSaveable { mutableStateOf<String?>(null) }
     val status = statusName?.let { MediaStatus.valueOf(it) }
@@ -86,7 +89,10 @@ fun MediaScreen(media: List<MediaEntry>, kind: MediaKind, onKind: (MediaKind) ->
             items(filtered, key = { it.id }) { item ->
                 val image = rememberCoverImage(item.cover)
                 val ratio = image?.let { it.width.toFloat() / it.height } ?: (2f / 3f)
-                Surface(onClick = { onEdit(item) }, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
+                Surface(
+                    modifier = Modifier.recordActions({ onEdit(item) }, onDeleteRequest?.let { request -> { request(item) } }),
+                    shape = RecordCardShape, color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                ) {
                     if (ratio > 1f) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             MediaCover(image, kind, Modifier.fillMaxWidth().aspectRatio(ratio))
