@@ -1,0 +1,17 @@
+.gradle/
+.kotlin/
+.tools/
+local.properties
+**/build/
+.idea/
+*.iml
+*.jks
+*.keystore
+keystore.properties
+.env
+.env.*
+artifacts/
+*.apk
+*.db
+*.db-*
+*.sqlite*
