@@ -20,9 +20,11 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 @Composable
-internal fun DayEventsPopup(day: LocalDate, events: List<DayEntry>, eventColor: Color, onDismiss: () -> Unit) {
+internal fun DayTasksPopup(day: LocalDate, tasks: List<DayEntry>, taskColor: Color, onDismiss: () -> Unit) {
     val gap = with(LocalDensity.current) { 8.dp.roundToPx() }
     val position = remember(gap) { AboveDayPosition(gap) }
+    val dayFormat = remember { DateTimeFormatter.ofPattern("d MMMM", Russian) }
+    val fullDateFormat = remember { DateTimeFormatter.ofPattern("d MMMM yyyy", Russian) }
     Popup(position, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
         Surface(
             modifier = Modifier.width(272.dp),
@@ -37,19 +39,27 @@ internal fun DayEventsPopup(day: LocalDate, events: List<DayEntry>, eventColor: 
             ) {
                 item {
                     Text(
-                        "События · " + day.format(DateTimeFormatter.ofPattern("d MMMM", Russian)),
+                        "Задачи · " + day.format(dayFormat),
                         style = MaterialTheme.typography.titleSmall,
                     )
                 }
-                if (events.isEmpty()) item {
-                    Text("На этот день нет событий", style = MaterialTheme.typography.bodyMedium, color = Muted)
+                if (tasks.isEmpty()) item {
+                    Text("На этот день нет задач", style = MaterialTheme.typography.bodyMedium, color = Muted)
                 }
-                items(events, key = { it.id }) { event ->
+                items(tasks, key = { it.id }) { task ->
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        if (event.time.isNotBlank()) Text(event.time, style = MaterialTheme.typography.labelMedium, color = eventColor)
-                        Text(event.title, style = MaterialTheme.typography.bodyMedium)
-                        if (event.details.isNotBlank()) {
-                            Text(event.details, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        val start = if (task.date == day) task.time else {
+                            val date = task.date.format(if (task.date.year == day.year) dayFormat else fullDateFormat)
+                            if (task.time.isBlank()) date else "$date, ${task.time}"
+                        }
+                        Text(
+                            if (start.isBlank()) "Без времени" else "Начало · $start",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (start.isBlank()) Muted else taskColor,
+                        )
+                        Text(task.title, style = MaterialTheme.typography.bodyMedium)
+                        if (task.details.isNotBlank()) {
+                            Text(task.details, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.bodySmall, color = Muted)
                         }
                     }

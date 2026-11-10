@@ -88,10 +88,11 @@ class HolidayUiTest {
         val calendar = instrumentation.targetContext.assets.open("holidays/2026.xml").use { ProductionCalendarCodec.parse(it.readBytes(), 2026) }
         val state = HolidayUiState(2026, true, false, calendar, error = error, holidays = holidaysForCalendar(2026, calendar))
         val entry = DayEntry(id = "fixture-holiday-task", title = "Моя задача", date = date)
-        val event = DayEntry(title = "Встреча", date = date.plusDays(1), time = "14:30", kind = EntryKind.EVENT)
+        val timedTask = DayEntry(title = "Подготовить документы", date = date.plusDays(1), time = "14:30")
+        val event = DayEntry(title = "Встреча", date = date.plusDays(1), time = "16:30", kind = EntryKind.EVENT)
         val otherEvent = DayEntry(title = "Событие на другой день", date = date.plusDays(2), kind = EntryKind.EVENT)
-        val spanningTask = DayEntry(title = "Задача на несколько дней", date = date, dueDate = date.plusDays(1))
-        val entries = listOf(entry, event, otherEvent, spanningTask)
+        val spanningTask = DayEntry(title = "Задача на несколько дней", date = date, time = "09:00", dueDate = date.plusDays(1))
+        val entries = listOf(entry, timedTask, event, otherEvent, spanningTask)
         scenario.onActivity { activity ->
             activity.setContent {
                 var selected by remember { mutableStateOf(date) }
@@ -169,24 +170,32 @@ class HolidayUiTest {
         }
     }
 
-    @Test fun longPressShowsOnlyEventsForThePressedDayAboveItsCell() {
+    @Test fun longPressShowsOnlyTasksForThePressedDayAboveItsCell() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             screen(scenario, LocalDate.of(2026, 11, 18))
             val day = awaitNode { it.contentDescription?.toString()?.startsWith("19 ноября 2026") == true }
             val cell = Rect().also(day::getBoundsInScreen)
             longPress(cell)
-            val title = text("События · 19 ноября")
-            text("Встреча")
-            val time = text("14:30")
+            val title = text("Задачи · 19 ноября")
+            text("Подготовить документы")
+            val time = text("Начало · 14:30")
+            text("Задача на несколько дней")
+            text("Начало · 18 ноября, 09:00")
             assertTrue(Rect().also(title::getBoundsInScreen).bottom < cell.top)
             assertTrue(Rect().also(time::getBoundsInScreen).bottom < cell.top)
-            assertNull(find(automation.rootInActiveWindow) { it.text?.toString() == "Событие на другой день" })
-            assertNull(find(automation.rootInActiveWindow) { it.text?.toString() == "Задача на несколько дней" })
+            assertNull(find(automation.rootInActiveWindow) { it.text?.toString() == "Встреча" })
+            assertNull(find(automation.rootInActiveWindow) { it.text?.toString() == "Моя задача" })
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
             text("18 ноября")
             val selected = awaitNode { it.contentDescription?.toString()?.startsWith("18 ноября 2026") == true }
             longPress(Rect().also(selected::getBoundsInScreen))
-            text("На этот день нет событий")
+            text("Без времени")
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            text("18 ноября")
+            automation.waitForIdle(250, 5000)
+            val empty = awaitNode { it.contentDescription?.toString()?.startsWith("20 ноября 2026") == true }
+            longPress(Rect().also(empty::getBoundsInScreen))
+            text("На этот день нет задач")
         }
     }
 

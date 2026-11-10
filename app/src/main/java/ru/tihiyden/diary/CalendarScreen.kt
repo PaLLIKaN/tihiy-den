@@ -99,7 +99,7 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
                                             .then(if (day == today && !selectedDay) Modifier.border(1.dp, Sage, RoundedCornerShape(16.dp)) else Modifier)
                                             .combinedClickable(
                                                 onClick = { onSelect(day) },
-                                                onLongClickLabel = "Показать события дня",
+                                                onLongClickLabel = "Показать задачи дня",
                                                 onLongClick = { previewDay = day },
                                             )
                                             .semantics(mergeDescendants = true) {
@@ -126,10 +126,10 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
                                         }
                                     }
                                     if (previewDay == day) {
-                                        val events = remember(entries, day) {
-                                            entriesForDay(entries, day).filter { it.kind == EntryKind.EVENT }
+                                        val dayTasks = remember(entries, day) {
+                                            entriesForDay(entries, day).filter { it.kind == EntryKind.TASK }
                                         }
-                                        DayEventsPopup(day, events, EventInk) { previewDay = null }
+                                        DayTasksPopup(day, dayTasks, TaskInk) { previewDay = null }
                                     }
                                 }
                             }
