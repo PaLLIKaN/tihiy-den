@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.URI
+import java.net.InetAddress
 import javax.net.ssl.HttpsURLConnection
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
@@ -75,6 +76,19 @@ internal object CoverSearch {
             require(connection.contentType.orEmpty().startsWith("image/", ignoreCase = true))
             require(connection.contentLengthLong <= MAX_IMAGE_BYTES)
             CoverImages.prepare(context, input, MAX_IMAGE_BYTES)
+        }
+    }
+
+    suspend fun importSharedImage(context: Context, image: URI): String? {
+        val host = requireNotNull(image.host)
+        require(InetAddress.getAllByName(host).all {
+            !it.isAnyLocalAddress && !it.isLoopbackAddress && !it.isLinkLocalAddress && !it.isSiteLocalAddress && !it.isMulticastAddress &&
+                (it.address.size != 16 || (it.address[0].toInt() and 0xfe) != 0xfc)
+        })
+        return fetch(image, setOf(host), "image/*") { connection, input ->
+            if (!connection.contentType.orEmpty().startsWith("image/", ignoreCase = true)) return@fetch null
+            require(connection.contentLengthLong <= MAX_IMAGE_BYTES)
+            CoverImages.writeDraft(context, CoverImages.prepare(context, input, MAX_IMAGE_BYTES))
         }
     }
 
@@ -247,6 +261,6 @@ internal object CoverSearch {
     }
 
     private fun trustedUri(value: String, allowedHosts: Set<String>): URI? = runCatching { URI(value) }.getOrNull()?.takeIf {
-        it.scheme == "https" && it.host in allowedHosts && it.userInfo == null && it.port in listOf(-1, 443)
+        it.scheme.equals("https", ignoreCase = true) && it.host in allowedHosts && it.userInfo == null && it.port in listOf(-1, 443)
     }
 }

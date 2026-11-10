@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -53,6 +54,37 @@ class SharedCoverUiTest {
             current = current.parent
         }
         error("No click action for ${node.text ?: node.contentDescription}")
+    }
+
+    @Test fun browserPageShareResolvesToDiaryAndOffersGallery() {
+        val context = instrumentation.targetContext
+        val share = Intent(Intent.ACTION_SEND).setType("text/plain").setPackage(context.packageName)
+            .putExtra(Intent.EXTRA_TEXT, "Страница в браузере\nhttps://example.com/")
+        assertEquals(MainActivity::class.java.name, share.resolveActivity(context.packageManager)?.className)
+        ActivityScenario.launch<MainActivity>(Intent(share).setClass(context, MainActivity::class.java)).use {
+            text("Ссылка из браузера")
+            text("Открыть в браузере")
+            text("Выбрать из галереи")
+            click(text("Отмена"))
+            text("Календарь")
+        }
+    }
+
+    @Test fun browserImageLinkLoadsTheImageAfterConfirmation() {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("verifyNetwork") == "true")
+        val context = instrumentation.targetContext
+        val image = "https://raw.githubusercontent.com/github/explore/main/topics/kotlin/kotlin.png"
+        val page = Uri.parse("https://yandex.ru/images/search").buildUpon().appendQueryParameter("img_url", image).build()
+        val share = Intent(Intent.ACTION_SEND).setType("text/plain").setClass(context, MainActivity::class.java)
+            .putExtra(Intent.EXTRA_TEXT, page.toString())
+        ActivityScenario.launch<MainActivity>(share).use {
+            text("Ссылка из браузера")
+            text("raw.githubusercontent.com")
+            click(text("Загрузить"))
+            text("Обложка из другого приложения")
+            description("Обложка")
+            click(text("Отмена"))
+        }
     }
 
     @Test fun shareOffersPreviewAndKeepsAnUnsavedEditorOnWarmLaunch() {

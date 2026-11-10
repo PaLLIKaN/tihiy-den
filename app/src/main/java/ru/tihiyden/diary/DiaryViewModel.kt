@@ -59,15 +59,31 @@ class DiaryViewModel internal constructor(application: Application, private val 
             _sharedCover.value = SharedCover.Error("Не удалось получить изображение. Сохраните его и выберите из галереи.")
             return
         }
+        loadSharedCover(SharedCover.Error("Не удалось открыть изображение. Попробуйте другую картинку или выберите её из галереи.")) {
+            SharedCover.Ready(CoverImages.importDraft(application, uri))
+        }
+    }
+
+    internal fun offerSharedCoverLink(link: SharedCover.Link?) {
+        dismissSharedCover()
+        _sharedCover.value = link ?: SharedCover.Error("В отправленном тексте нет ссылки на изображение или страницу.")
+    }
+
+    internal fun downloadSharedCover(link: SharedCover.Link) {
+        if (_sharedCover.value != link || link.pageOnly) return
+        loadSharedCover(link.copy(message = "Не удалось загрузить картинку. Можно открыть страницу и выбрать кадр из галереи.")) {
+            val draft = CoverSearch.importSharedImage(getApplication(), link.image)
+            if (draft != null) SharedCover.Ready(draft)
+            else link.copy(message = "По ссылке открывается страница. Сохраните нужный кадр в браузере и выберите его из галереи.", pageOnly = true)
+        }
+    }
+
+    private fun loadSharedCover(failure: SharedCover, load: suspend () -> SharedCover) {
         _sharedCover.value = SharedCover.Loading
         coverImport = viewModelScope.launch {
-            try {
-                val draft = withContext(Dispatchers.IO) { CoverImages.importDraft(application, uri) }
-                _sharedCover.value = SharedCover.Ready(draft)
-            } catch (e: CancellationException) { throw e }
-            catch (_: Exception) {
-                _sharedCover.value = SharedCover.Error("Не удалось открыть изображение. Попробуйте другую картинку или выберите её из галереи.")
-            }
+            try { _sharedCover.value = withContext(Dispatchers.IO) { load() } }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { _sharedCover.value = failure }
         }
     }
 

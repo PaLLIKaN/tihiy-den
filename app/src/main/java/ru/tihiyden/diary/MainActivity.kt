@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (savedInstanceState == null) acceptSharedImage(intent)
+        if (savedInstanceState == null) acceptShare(intent)
         setContent {
             val theme: ThemeViewModel = viewModel()
             val accent by theme.accent.collectAsStateWithLifecycle()
@@ -54,11 +54,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        acceptSharedImage(intent)
+        acceptShare(intent)
     }
 
-    private fun acceptSharedImage(intent: Intent) {
-        if (intent.action == Intent.ACTION_SEND) diary.importSharedCover(intent.sharedImageUri())
+    private fun acceptShare(intent: Intent) {
+        if (intent.action != Intent.ACTION_SEND) return
+        if (intent.type in sharedLinkMimeTypes) diary.offerSharedCoverLink(intent.sharedCoverLink())
+        else diary.importSharedCover(intent.sharedImageUri())
     }
 }
 
@@ -255,6 +257,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
         is SharedCover.Error -> AlertDialog(onDismissRequest = vm::dismissSharedCover,
             title = { Text("Обложка") }, text = { Text(share.message) },
             confirmButton = { TextButton(onClick = vm::dismissSharedCover) { Text("Понятно") } })
+        is SharedCover.Link -> SharedCoverLinkDialog(share, vm::dismissSharedCover, { vm.downloadSharedCover(share) }, vm::importSharedCover)
         is SharedCover.Ready -> if (ready) key(share.reference) {
             val defaultKind = if (section == Section.MEDIA) mediaKind else MediaKind.MOVIE
             SharedCoverDialog(share.reference, data.media, mediaEditor != null, defaultKind, working, vm::dismissSharedCover) { selected ->

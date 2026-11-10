@@ -2,6 +2,9 @@ package ru.tihiyden.diary
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,10 +14,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.IntentCompat
+import java.net.URI
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,6 +29,56 @@ internal sealed interface SharedCover {
     data object Loading : SharedCover
     data class Ready(val reference: String) : SharedCover
     data class Error(val message: String) : SharedCover
+    data class Link(val page: URI, val image: URI, val message: String? = null, val pageOnly: Boolean = false) : SharedCover
+}
+
+internal val sharedLinkMimeTypes = setOf("text/plain", "text/uri-list")
+private val webUrlPattern = Regex("https?://[^\\s<>\"\\p{Cntrl}]+", RegexOption.IGNORE_CASE)
+private val yandexImageHosts = setOf("yandex.ru", "www.yandex.ru", "yandex.com", "www.yandex.com", "ya.ru")
+
+internal fun Intent.sharedCoverLink(): SharedCover.Link? {
+    if (action != Intent.ACTION_SEND || type !in sharedLinkMimeTypes) return null
+    return try {
+        val text = getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+            ?: clipData?.takeIf { it.itemCount == 1 }?.getItemAt(0)?.let { it.uri?.toString() ?: it.text?.toString() }
+            ?: return null
+        val page = webUrlPattern.find(text.take(8192))?.value?.let(::sharedWebUri) ?: return null
+        val image = if (page.host.lowercase(Locale.ROOT) in yandexImageHosts && page.path.orEmpty().startsWith("/images/")) {
+            Uri.parse(page.toString()).getQueryParameter("img_url")?.let(::sharedWebUri)?.takeIf { it.scheme.equals("https", true) }
+        } else null
+        SharedCover.Link(page, image ?: page, pageOnly = image == null && !page.scheme.equals("https", true))
+    } catch (_: RuntimeException) { null }
+}
+
+private fun sharedWebUri(value: String): URI? = runCatching { URI(value) }.getOrNull()?.takeIf {
+    val host = it.host?.lowercase(Locale.ROOT)?.trimEnd('.') ?: return@takeIf false
+    it.scheme?.lowercase(Locale.ROOT) in setOf("https", "http") && it.userInfo == null && it.port == -1 &&
+        host.contains('.') && host.any(Char::isLetter) && !host.endsWith(".local") && !host.endsWith(".localhost") && ':' !in host
+}
+
+@Composable
+internal fun SharedCoverLinkDialog(link: SharedCover.Link, onDismiss: () -> Unit, onDownload: () -> Unit, onPick: (Uri) -> Unit) {
+    val browser = LocalUriHandler.current
+    var openFailed by remember(link) { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(onPick) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ссылка из браузера") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(link.message ?: if (link.pageOnly) "Откройте страницу, сохраните нужный кадр и выберите его из галереи."
+                    else "Если по ссылке открывается изображение, его можно загрузить как обложку. Для обычной страницы сначала сохраните нужный кадр.")
+                if (!link.pageOnly) Text(link.image.host, color = Muted, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { openFailed = runCatching { browser.openUri(link.page.toString()) }.isFailure }) { Text("Открыть в браузере") }
+                TextButton(onClick = {
+                    openFailed = runCatching { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }.isFailure
+                }) { Text("Выбрать из галереи") }
+                if (openFailed) Text("Не удалось открыть выбранное приложение.", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        confirmButton = { if (!link.pageOnly) TextButton(onClick = onDownload) { Text("Загрузить") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
 
 internal fun Intent.sharedImageUri(): Uri? {
