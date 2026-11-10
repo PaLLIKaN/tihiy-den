@@ -4,8 +4,10 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 
-enum class HolidayKind(val label: String) {
-    PUBLIC("Государственный праздник"), MEMORIAL("Памятная дата"), PROFESSIONAL("Профессиональный праздник")
+enum class HolidayKind(val label: String, val pluralLabel: String, val defaultColor: Int, val defaultTint: Int) {
+    PUBLIC("Государственный праздник", "Государственные", 0xFFA52440.toInt(), 0xFFFFE6EC.toInt()),
+    MEMORIAL("Памятная дата", "Памятные даты", 0xFF2C5DA5.toInt(), 0xFFE5EFFF.toInt()),
+    PROFESSIONAL("Профессиональный праздник", "Профессиональные", 0xFF8A530B.toInt(), 0xFFFFEBD3.toInt()),
 }
 data class Holiday(val id: String, val date: LocalDate, val title: String, val kind: HolidayKind)
 data class HolidaySettings(
@@ -15,12 +17,26 @@ data class HolidaySettings(
     val professional: Boolean = true,
     val dayTypes: Boolean = true,
     val autoUpdate: Boolean = true,
+    val colors: Map<HolidayKind, Int> = emptyMap(),
 ) {
-    fun shows(kind: HolidayKind): Boolean = enabled && when (kind) {
+    fun shows(kind: HolidayKind): Boolean = enabled && includes(kind)
+
+    fun includes(kind: HolidayKind): Boolean = when (kind) {
         HolidayKind.PUBLIC -> public
         HolidayKind.MEMORIAL -> memorial
         HolidayKind.PROFESSIONAL -> professional
     }
+
+    fun withCategory(kind: HolidayKind, checked: Boolean): HolidaySettings = when (kind) {
+        HolidayKind.PUBLIC -> copy(public = checked)
+        HolidayKind.MEMORIAL -> copy(memorial = checked)
+        HolidayKind.PROFESSIONAL -> copy(professional = checked)
+    }
+
+    fun color(kind: HolidayKind): Int = colors[kind] ?: kind.defaultColor
+
+    fun withColor(kind: HolidayKind, color: Int): HolidaySettings =
+        copy(colors = if (color == kind.defaultColor) colors - kind else colors + (kind to color))
 }
 
 /** Current federal observances. Date facts and sources are documented in HOLIDAYS_SOURCES.md. */

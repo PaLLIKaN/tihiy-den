@@ -109,6 +109,14 @@ class HolidayRepositoryTest {
         try {
             assertEquals(HolidaySettings(), HolidayPreferences(context, name).read())
             val settings = HolidaySettings(enabled = false, memorial = false, professional = false, autoUpdate = false, dayTypes = false)
+            val publicColor = 0xFF115566.toInt()
+            val memorialColor = 0xFF664411.toInt()
+            val customized = settings.withColor(HolidayKind.PUBLIC, publicColor).withColor(HolidayKind.MEMORIAL, memorialColor)
+            assertTrue(HolidayPreferences(context, name).save(customized))
+            assertEquals(customized, HolidayPreferences(context, name).read())
+            val reset = customized.withColor(HolidayKind.PUBLIC, HolidayKind.PUBLIC.defaultColor)
+            assertTrue(HolidayPreferences(context, name).save(reset))
+            assertEquals(reset, HolidayPreferences(context, name).read())
             assertTrue(HolidayPreferences(context, name).save(settings))
             assertEquals(settings, HolidayPreferences(context, name).read())
         } finally { context.deleteSharedPreferences(name) }

@@ -1,12 +1,20 @@
 package ru.tihiyden.diary
 
 import android.graphics.Bitmap
+import android.graphics.Rect
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.os.SystemClock
+import android.view.InputDevice
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -49,6 +57,18 @@ class HolidayUiTest {
         throw AssertionError("No clickable holiday ancestor")
     }
     private fun text(value: String) = awaitNode { it.text?.toString() == value }
+    private fun longPress(bounds: Rect) {
+        val down = SystemClock.uptimeMillis()
+        fun send(action: Int) {
+            val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
+                bounds.exactCenterX(), bounds.exactCenterY(), 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+        }
+        send(MotionEvent.ACTION_DOWN)
+        SystemClock.sleep(ViewConfiguration.getLongPressTimeout().toLong() + 150)
+        send(MotionEvent.ACTION_UP)
+    }
     private fun scrollTo(value: String): AccessibilityNodeInfo {
         repeat(8) {
             find(automation.rootInActiveWindow) { it.text?.toString() == value }?.let { return it }
@@ -68,6 +88,10 @@ class HolidayUiTest {
         val calendar = instrumentation.targetContext.assets.open("holidays/2026.xml").use { ProductionCalendarCodec.parse(it.readBytes(), 2026) }
         val state = HolidayUiState(2026, true, false, calendar, error = error, holidays = holidaysForCalendar(2026, calendar))
         val entry = DayEntry(id = "fixture-holiday-task", title = "Моя задача", date = date)
+        val event = DayEntry(title = "Встреча", date = date.plusDays(1), time = "14:30", kind = EntryKind.EVENT)
+        val otherEvent = DayEntry(title = "Событие на другой день", date = date.plusDays(2), kind = EntryKind.EVENT)
+        val spanningTask = DayEntry(title = "Задача на несколько дней", date = date, dueDate = date.plusDays(1))
+        val entries = listOf(entry, event, otherEvent, spanningTask)
         scenario.onActivity { activity ->
             activity.setContent {
                 var selected by remember { mutableStateOf(date) }
@@ -75,14 +99,20 @@ class HolidayUiTest {
                 var dialog by remember { mutableStateOf(false) }
                 DiaryTheme {
                     Surface(Modifier.fillMaxSize().systemBarsPadding().semantics { contentDescription = "Тестовый календарь праздников" }) {
-                        CalendarScreen(listOf(entry), selected, { selected = it }, {}, {}, state, settings) { dialog = true }
+                        Column {
+                            TextButton(onClick = { dialog = true }) { Text("Настроить праздники") }
+                            CalendarScreen(entries, selected, { selected = it }, {}, {}, state, settings)
+                        }
                     }
-                    if (dialog) HolidaySettingsDialog(settings, state, false, { settings = it }, { updates.incrementAndGet() }) { dialog = false }
+                    if (dialog) HolidaySettingsDialog(settings, state, false, { value, onSaved ->
+                        settings = value
+                        onSaved()
+                    }, { updates.incrementAndGet() }) { dialog = false }
                 }
             }
         }
         awaitNode { it.contentDescription?.toString() == "Тестовый календарь праздников" }
-        awaitNode { it.contentDescription?.toString() == "Настроить праздники" }
+        text("Настроить праздники")
         automation.waitForIdle(500, 5000)
     }
 
@@ -108,7 +138,7 @@ class HolidayUiTest {
             text("Профессиональный праздник")
             text("Рабочий день")
             top()
-            click(awaitNode { it.contentDescription?.toString() == "Настроить праздники" })
+            click(text("Настроить праздники"))
             click(awaitNode { it.contentDescription?.toString() == "Профессиональные" })
             click(text("Готово"))
             automation.waitForIdle(500, 5000)
@@ -129,7 +159,7 @@ class HolidayUiTest {
                 finally { bitmap.recycle() }
             }
             top()
-            click(awaitNode { it.contentDescription?.toString() == "Настроить праздники" })
+            click(text("Настроить праздники"))
             text("Праздники России")
             scrollTo("Обновить сейчас")
             text("Сеть недоступна. Сохранённые праздники доступны.")
@@ -137,5 +167,53 @@ class HolidayUiTest {
             assertEquals(1, updates.get())
             click(text("Готово"))
         }
+    }
+
+    @Test fun longPressShowsOnlyEventsForThePressedDayAboveItsCell() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            screen(scenario, LocalDate.of(2026, 11, 18))
+            val day = awaitNode { it.contentDescription?.toString()?.startsWith("19 ноября 2026") == true }
+            val cell = Rect().also(day::getBoundsInScreen)
+            longPress(cell)
+            val title = text("События · 19 ноября")
+            text("Встреча")
+            val time = text("14:30")
+            assertTrue(Rect().also(title::getBoundsInScreen).bottom < cell.top)
+            assertTrue(Rect().also(time::getBoundsInScreen).bottom < cell.top)
+            assertNull(find(automation.rootInActiveWindow) { it.text?.toString() == "Событие на другой день" })
+            assertNull(find(automation.rootInActiveWindow) { it.text?.toString() == "Задача на несколько дней" })
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            text("18 ноября")
+            val selected = awaitNode { it.contentDescription?.toString()?.startsWith("18 ноября 2026") == true }
+            longPress(Rect().also(selected::getBoundsInScreen))
+            text("На этот день нет событий")
+        }
+    }
+
+    @Test fun logoOpensAboutAndHolidayColorPicker() {
+        val preferences = HolidayPreferences(instrumentation.targetContext)
+        val originalSettings = preferences.read()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                click(awaitNode { it.contentDescription?.toString() == "О приложении" })
+                text("Версия ${instrumentation.targetContext.getString(R.string.app_version)}")
+                text("Репозиторий на GitHub")
+                click(text("Настройки праздников"))
+                text("Праздники России")
+                val colorButton = "Изменить цвет · Памятные даты · #"
+                val original = awaitNode { it.contentDescription?.toString()?.startsWith(colorButton) == true }
+                    .contentDescription.toString()
+                click(awaitNode { it.contentDescription?.toString() == original })
+                text("Цвет · Памятные даты")
+                awaitNode { it.contentDescription?.toString() == "Цветовой круг" }
+                val color = if (original.endsWith("795B91")) "426697" else "795B91"
+                click(awaitNode { it.contentDescription?.toString() == "Цвет: #$color" })
+                click(text("Применить"))
+                awaitNode { it.contentDescription?.toString() == colorButton + color }
+                assertEquals(color, accentHex(preferences.read().color(HolidayKind.MEMORIAL)))
+                click(text("Готово"))
+                text("Репозиторий на GitHub")
+            }
+        } finally { assertTrue(preferences.save(originalSettings)) }
     }
 }

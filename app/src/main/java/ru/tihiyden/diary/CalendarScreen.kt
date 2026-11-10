@@ -2,7 +2,7 @@ package ru.tihiyden.diary
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -31,17 +32,7 @@ import java.util.Locale
 val Russian: Locale = Locale.forLanguageTag("ru-RU")
 fun String.capitalized(): String = replaceFirstChar { it.titlecase(Russian) }
 
-private enum class HolidayColor(val legend: String, val ink: Color, val tint: Color) {
-    PUBLIC("Государственные", Color(0xFFA52440), Color(0xFFFFE6EC)),
-    MEMORIAL("Памятные", Color(0xFF2C5DA5), Color(0xFFE5EFFF)),
-    PROFESSIONAL("Профессиональные", Color(0xFF8A530B), Color(0xFFFFEBD3)),
-}
-
-private val HolidayKind.colors get() = when (this) {
-    HolidayKind.PUBLIC -> HolidayColor.PUBLIC
-    HolidayKind.MEMORIAL -> HolidayColor.MEMORIAL
-    HolidayKind.PROFESSIONAL -> HolidayColor.PROFESSIONAL
-}
+private data class HolidayColor(val ink: Color, val tint: Color, val selectedMark: Color)
 
 private val TaskInk = Color(0xFF216449)
 private val TaskTint = Color(0xFFE5F4EB)
@@ -50,7 +41,7 @@ private val EventTint = Color(0xFFF2E9FB)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (LocalDate) -> Unit, onEdit: (DayEntry) -> Unit, onToggle: (DayEntry) -> Unit, holidayState: HolidayUiState = HolidayUiState(), holidaySettings: HolidaySettings = HolidaySettings(), onDeleteRequest: ((DayEntry) -> Unit)? = null, onHolidaySettings: () -> Unit = {}) {
+fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (LocalDate) -> Unit, onEdit: (DayEntry) -> Unit, onToggle: (DayEntry) -> Unit, holidayState: HolidayUiState = HolidayUiState(), holidaySettings: HolidaySettings = HolidaySettings(), onDeleteRequest: ((DayEntry) -> Unit)? = null) {
     val month = YearMonth.from(selected)
     val today = LocalDate.now()
     val days = remember(month) { calendarDays(month) }
@@ -59,6 +50,7 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
     var statusName by rememberSaveable { mutableStateOf(TaskStatus.ALL.name) }
     var priorityName by rememberSaveable { mutableStateOf<String?>(null) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
+    var previewDay by remember(selected) { mutableStateOf<LocalDate?>(null) }
     val filter = TaskFilter(TaskStatus.valueOf(statusName), priorityName?.let(TaskPriority::valueOf))
     val visibleEntries = remember(dayEntries, filter) { dayEntries.filter(filter::includes) }
     val tasks = dayEntries.count { it.kind == EntryKind.TASK }
@@ -66,6 +58,13 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
     val resetFilters = { statusName = TaskStatus.ALL.name; priorityName = null }
     val byHoliday = remember(holidayState.holidays, holidaySettings) { holidayState.holidays.filter { holidaySettings.shows(it.kind) }.groupBy { it.date } }
     val dayHolidays = byHoliday[selected].orEmpty()
+    val holidayColors = remember(holidaySettings.colors) {
+        HolidayKind.entries.associateWith { kind ->
+            val color = holidaySettings.color(kind)
+            if (color == kind.defaultColor) HolidayColor(Color(color), Color(kind.defaultTint), Color(kind.defaultTint))
+            else HolidayColor(diaryColorScheme(color).primary, lerp(Color(color), Color.White, .86f), lerp(Color(color), Color.White, .42f))
+        }
+    }
     val production = holidayState.calendar?.takeIf { it.year == selected.year }
     val selectedDayType = if (holidaySettings.enabled && holidaySettings.dayTypes && production != null) {
         production.days[selected]?.label ?: if (selected.dayOfWeek.value >= 6) "Выходной день" else "Рабочий день"
@@ -76,7 +75,6 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 12.dp)) {
                     Row(Modifier.fillMaxWidth().padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(month.format(DateTimeFormatter.ofPattern("LLLL yyyy", Russian)).capitalized(), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                        IconButton(onClick = onHolidaySettings) { Icon(Icons.Outlined.EventAvailable, "Настроить праздники") }
                         IconButton(onClick = { onSelect(selectedDateInMonth(selected, month.minusMonths(1))) }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "Предыдущий месяц") }
                         IconButton(onClick = { onSelect(selectedDateInMonth(selected, month.plusMonths(1))) }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Следующий месяц") }
                     }
@@ -99,7 +97,11 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
                                         Modifier.size(46.dp).clip(RoundedCornerShape(16.dp))
                                             .background(if (selectedDay) Sage else Color.Transparent)
                                             .then(if (day == today && !selectedDay) Modifier.border(1.dp, Sage, RoundedCornerShape(16.dp)) else Modifier)
-                                            .clickable { onSelect(day) }
+                                            .combinedClickable(
+                                                onClick = { onSelect(day) },
+                                                onLongClickLabel = "Показать события дня",
+                                                onLongClick = { previewDay = day },
+                                            )
                                             .semantics(mergeDescendants = true) {
                                                 contentDescription = day.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Russian)) +
                                                     (if (day == today) ", сегодня" else "") +
@@ -113,15 +115,21 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
                                         Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium, fontWeight = if (selectedDay || day == today || categories.isNotEmpty()) FontWeight.Bold else FontWeight.Normal,
                                             color = when {
                                                 selectedDay -> MaterialTheme.colorScheme.onPrimary
-                                                categories.isNotEmpty() -> categories.first().colors.ink
+                                                categories.isNotEmpty() -> holidayColors.getValue(categories.first()).ink
                                                 !inMonth -> Muted.copy(alpha = .5f)
                                                 else -> Ink
                                             })
                                         Row(Modifier.height(8.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
                                             if (marks.tasks > 0) Box(Modifier.size(5.dp).background(if (selectedDay) Color(0xFFA0E2BB) else TaskInk, CircleShape))
                                             if (marks.events > 0) Box(Modifier.size(5.dp).background(if (selectedDay) Color(0xFFDEBFFF) else EventInk, CircleShape))
-                                            categories.forEach { kind -> HolidayMark(kind.colors, selectedDay) }
+                                            categories.forEach { kind -> HolidayMark(holidayColors.getValue(kind), selectedDay) }
                                         }
+                                    }
+                                    if (previewDay == day) {
+                                        val events = remember(entries, day) {
+                                            entriesForDay(entries, day).filter { it.kind == EntryKind.EVENT }
+                                        }
+                                        DayEventsPopup(day, events, EventInk) { previewDay = null }
                                     }
                                 }
                             }
@@ -138,8 +146,9 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
                         FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             HolidayKind.entries.filter(holidaySettings::shows).forEach { kind ->
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    HolidayMark(kind.colors)
-                                    Text(kind.colors.legend, style = MaterialTheme.typography.labelSmall, color = kind.colors.ink)
+                                    val colors = holidayColors.getValue(kind)
+                                    HolidayMark(colors)
+                                    Text(kind.pluralLabel, style = MaterialTheme.typography.labelSmall, color = colors.ink)
                                 }
                             }
                         }
@@ -164,7 +173,7 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
             Text("Переносы выходных на ${selected.year} год пока не загружены.", style = MaterialTheme.typography.bodySmall, color = Muted)
         }
         items(dayHolidays, key = { it.id }) { holiday ->
-            val colors = holiday.kind.colors
+            val colors = holidayColors.getValue(holiday.kind)
             Surface(color = colors.tint, contentColor = Ink, shape = RoundedCornerShape(18.dp)) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(if (holiday.kind == HolidayKind.PROFESSIONAL) Icons.Outlined.WorkOutline else Icons.Outlined.EventAvailable, null, tint = colors.ink, modifier = Modifier.size(22.dp))
@@ -231,7 +240,7 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
 
 @Composable
 private fun HolidayMark(colors: HolidayColor, selected: Boolean = false) {
-    Box(Modifier.size(width = 7.dp, height = 5.dp).background(if (selected) colors.tint else colors.ink, RoundedCornerShape(1.dp)))
+    Box(Modifier.size(width = 7.dp, height = 5.dp).background(if (selected) colors.selectedMark else colors.ink, RoundedCornerShape(1.dp)))
 }
 
 @Composable

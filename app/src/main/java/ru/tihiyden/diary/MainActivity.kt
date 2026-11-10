@@ -19,6 +19,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
@@ -71,6 +73,8 @@ enum class Section(val title: String, val subtitle: String, val icon: ImageVecto
     BACKUP("Резервная копия", "Сохранить и перенести свои записи", Icons.Outlined.CloudUpload),
 }
 
+private enum class AppPanel { ABOUT, HOLIDAYS }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiaryApp(vm: DiaryViewModel = viewModel()) {
@@ -104,11 +108,13 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
     var mediaEditor by rememberSaveable(stateSaver = MediaEntrySaver) { mutableStateOf<MediaEntry?>(null) }
     var incomingCover by rememberSaveable { mutableStateOf<String?>(null) }
     var themePicker by rememberSaveable { mutableStateOf(false) }
-    var holidayPicker by rememberSaveable { mutableStateOf(false) }
+    var appPanel by rememberSaveable { mutableStateOf<AppPanel?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(selectedDay, section, today, holidaySettings) {
-        if (section == Section.CALENDAR) holidayVm.loadYear(LocalDate.parse(selectedDay).year)
+    val calendarYear = LocalDate.parse(selectedDay).year
+    val needsHolidays = section == Section.CALENDAR || appPanel == AppPanel.HOLIDAYS
+    LaunchedEffect(calendarYear, needsHolidays, today, holidaySettings.enabled, holidaySettings.autoUpdate) {
+        if (needsHolidays) holidayVm.loadYear(calendarYear)
     }
 
     LaunchedEffect(message) {
@@ -145,7 +151,11 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
                 TopAppBar(
                     title = { Text("ТИХИЙ ДЕНЬ", style = MaterialTheme.typography.labelMedium, color = Muted) },
                     navigationIcon = { IconButton(onClick = { scope.launch { drawer.open() } }) { Icon(Icons.Outlined.Menu, "Открыть меню") } },
-                    actions = { Icon(Icons.Outlined.Spa, null, Modifier.padding(end = 22.dp).size(22.dp), tint = Sage) },
+                    actions = {
+                        IconButton(onClick = { appPanel = AppPanel.ABOUT }, modifier = Modifier.padding(end = 8.dp)) {
+                            Icon(Icons.Outlined.Spa, "О приложении", Modifier.size(22.dp), tint = Sage)
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Paper),
                 )
             },
@@ -184,7 +194,6 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
                     Section.CALENDAR -> CalendarScreen(
                         data.entries, LocalDate.parse(selectedDay), { selectedDay = it.toString() }, { entryEditor = it },
                         vm::toggle, holidays, holidaySettings, onDeleteRequest = { deleteId = it.id },
-                        onHolidaySettings = { holidayPicker = true },
                     )
                     Section.THOUGHTS -> ThoughtsScreen(data.thoughts, onEdit = { thoughtEditor = it }, onDeleteRequest = { deleteId = it.id })
                     Section.MEDIA -> MediaScreen(data.media, mediaKind, { mediaKindName = it.name }, onEdit = { mediaEditor = it }, onDeleteRequest = { deleteId = it.id })
@@ -226,7 +235,15 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
     }
 
     if (themePicker) ThemePicker { themePicker = false }
-    if (holidayPicker) HolidaySettingsDialog(holidaySettings, holidays, savingHolidays, holidayVm::saveSettings, { holidayVm.loadYear(LocalDate.parse(selectedDay).year, force = true) }) { holidayPicker = false }
+    when (appPanel) {
+        AppPanel.ABOUT -> AboutAppDialog(onHolidays = { appPanel = AppPanel.HOLIDAYS }, onDismiss = { appPanel = null })
+        AppPanel.HOLIDAYS -> HolidaySettingsDialog(
+            holidaySettings, holidays, savingHolidays, holidayVm::saveSettings,
+            onRefresh = { holidayVm.loadYear(calendarYear, force = true) },
+            onDismiss = { appPanel = AppPanel.ABOUT },
+        )
+        null -> Unit
+    }
     if (holidaySettingsError) AlertDialog(onDismissRequest = holidayVm::clearSettingsError, title = { Text("Праздники России") }, text = { Text("Не удалось сохранить настройки. Попробуйте ещё раз.") }, confirmButton = { TextButton(onClick = holidayVm::clearSettingsError) { Text("Понятно") } })
     entryEditor?.let { entry ->
         EntryEditor(entry, saving = working, onDismiss = { entryEditor = null },
@@ -276,4 +293,32 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
     if (error != null) AlertDialog(onDismissRequest = vm::clearError,
         title = { Text("Не удалось выполнить действие") }, text = { Text(error.orEmpty()) },
         confirmButton = { TextButton(onClick = vm::clearError) { Text("Понятно") } })
+}
+
+@Composable
+private fun AboutAppDialog(onHolidays: () -> Unit, onDismiss: () -> Unit) {
+    val browser = LocalUriHandler.current
+    var browserError by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.Spa, null, tint = Sage) },
+        title = { Text("Тихий день") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Версия ${stringResource(R.string.app_version)}", style = MaterialTheme.typography.labelMedium, color = Muted)
+                Text("Личный календарь для событий и задач, мыслей и списка книг, фильмов и сериалов.")
+                TextButton(onClick = {
+                    browserError = runCatching { browser.openUri("https://github.com/PaLLIKaN/tihiy-den") }.isFailure
+                }) { Text("Репозиторий на GitHub") }
+                if (browserError) Text("Не удалось открыть браузер.", color = MaterialTheme.colorScheme.error)
+                HorizontalDivider()
+                OutlinedButton(onClick = onHolidays) {
+                    Icon(Icons.Outlined.EventAvailable, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Настройки праздников")
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+    )
 }

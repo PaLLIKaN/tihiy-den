@@ -19,11 +19,21 @@ class HolidayPreferences(context: Context, name: String = "holiday-settings") {
         preferences.getBoolean("enabled", true), preferences.getBoolean("public", true),
         preferences.getBoolean("memorial", true), preferences.getBoolean("professional", true),
         preferences.getBoolean("dayTypes", true), preferences.getBoolean("autoUpdate", true),
+        HolidayKind.entries.filter { preferences.contains(colorKey(it)) }
+            .associateWith { preferences.getInt(colorKey(it), it.defaultColor) },
     )
     fun save(value: HolidaySettings): Boolean = preferences.edit()
         .putBoolean("enabled", value.enabled).putBoolean("public", value.public)
         .putBoolean("memorial", value.memorial).putBoolean("professional", value.professional)
-        .putBoolean("dayTypes", value.dayTypes).putBoolean("autoUpdate", value.autoUpdate).commit()
+        .putBoolean("dayTypes", value.dayTypes).putBoolean("autoUpdate", value.autoUpdate)
+        .apply {
+            HolidayKind.entries.forEach { kind ->
+                val color = value.colors[kind]
+                if (color == null) remove(colorKey(kind)) else putInt(colorKey(kind), color)
+            }
+        }.commit()
+
+    private fun colorKey(kind: HolidayKind) = "color-${kind.name}"
 }
 
 data class HolidayUiState(
@@ -58,13 +68,15 @@ class HolidayViewModel(application: Application) : AndroidViewModel(application)
     private var job: Job? = null
     fun clearSettingsError() { _settingsError.value = false }
 
-    fun saveSettings(value: HolidaySettings) {
+    fun saveSettings(value: HolidaySettings, onSaved: () -> Unit = {}) {
         if (_saving.value) return
         _saving.value = true
         viewModelScope.launch {
             try {
-                if (withContext(Dispatchers.IO) { preferences.save(value) }) _settings.value = value
-                else _settingsError.value = true
+                if (withContext(Dispatchers.IO) { preferences.save(value) }) {
+                    _settings.value = value
+                    onSaved()
+                } else _settingsError.value = true
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { _settingsError.value = true }
             finally { _saving.value = false }

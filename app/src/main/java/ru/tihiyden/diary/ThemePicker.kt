@@ -51,11 +51,34 @@ fun ThemeMenuItem(onClick: () -> Unit) {
 @Composable
 fun ThemePicker(onDismiss: () -> Unit) {
     val actions = LocalThemeActions.current
-    val initial = remember(actions.accent) { FloatArray(3).also { AndroidColor.colorToHSV(actions.accent, it) } }
+    ColorPicker(
+        title = "Цветовая гамма",
+        description = "Выберите цвет на круге. Фон, кнопки и акценты изменятся вместе.",
+        color = actions.accent,
+        defaultColor = DEFAULT_ACCENT,
+        saving = actions.saving,
+        onApply = { actions.save(it, onDismiss) },
+        onDismiss = onDismiss,
+        preview = { ThemePreview(it) },
+    )
+}
+
+@Composable
+internal fun ColorPicker(
+    title: String,
+    description: String,
+    color: Int,
+    defaultColor: Int,
+    saving: Boolean,
+    onApply: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    preview: @Composable (Int) -> Unit = {},
+) {
+    val initial = remember(color) { FloatArray(3).also { AndroidColor.colorToHSV(color, it) } }
     var hue by rememberSaveable { mutableFloatStateOf(initial[0]) }
     var saturation by rememberSaveable { mutableFloatStateOf(initial[1]) }
     var brightness by rememberSaveable { mutableFloatStateOf(initial[2]) }
-    var hex by rememberSaveable { mutableStateOf(accentHex(actions.accent)) }
+    var hex by rememberSaveable { mutableStateOf(accentHex(color)) }
     val selected = AndroidColor.HSVToColor(floatArrayOf(hue, saturation, brightness))
     fun update(h: Float, s: Float, v: Float) {
         hue = h; saturation = s; brightness = v
@@ -65,16 +88,15 @@ fun ThemePicker(onDismiss: () -> Unit) {
         val hsv = FloatArray(3).also { AndroidColor.colorToHSV(color, it) }
         update(hsv[0], hsv[1], hsv[2])
     }
-    val preview = remember(selected) { diaryColorScheme(selected) }
     val valid = hex.length == 6
     AlertDialog(
-        onDismissRequest = { if (!actions.saving) onDismiss() },
+        onDismissRequest = { if (!saving) onDismiss() },
         icon = { Icon(Icons.Outlined.Palette, null) },
-        title = { Text("Цветовая гамма") },
+        title = { Text(title) },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 540.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Выберите цвет на круге. Фон, кнопки и акценты изменятся вместе.", style = MaterialTheme.typography.bodyMedium)
-                ColorWheel(hue, saturation, brightness, enabled = !actions.saving, onChange = { h, s -> update(h, s, brightness) })
+                Text(description, style = MaterialTheme.typography.bodyMedium)
+                ColorWheel(hue, saturation, brightness, enabled = !saving, onChange = { h, s -> update(h, s, brightness) })
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(Modifier.size(44.dp).background(Color(selected), CircleShape).border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
                     OutlinedTextField(hex, { text ->
@@ -84,44 +106,47 @@ fun ThemePicker(onDismiss: () -> Unit) {
                             val hsv = FloatArray(3).also { AndroidColor.colorToHSV((0xff000000L or filtered.toLong(16)).toInt(), it) }
                             hue = hsv[0]; saturation = hsv[1]; brightness = hsv[2]
                         }
-                    }, label = { Text("HEX-код") }, prefix = { Text("#") }, singleLine = true, enabled = !actions.saving,
+                    }, label = { Text("HEX-код") }, prefix = { Text("#") }, singleLine = true, enabled = !saving,
                         isError = !valid, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters))
                 }
                 Text("Яркость · ${(brightness * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
-                Slider(brightness, { update(hue, saturation, it) }, enabled = !actions.saving, modifier = Modifier.semantics { contentDescription = "Яркость цвета" })
+                Slider(brightness, { update(hue, saturation, it) }, enabled = !saving, modifier = Modifier.semantics { contentDescription = "Яркость цвета" })
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    listOf(DEFAULT_ACCENT, 0xff426697.toInt(), 0xff795b91.toInt(), 0xff387c7b.toInt(), 0xffa55470.toInt(), 0xff996139.toInt()).forEach { color ->
+                    listOf(defaultColor, 0xff426697.toInt(), 0xff795b91.toInt(), 0xff387c7b.toInt(), 0xffa55470.toInt(), 0xff996139.toInt()).forEach { color ->
                         Box(Modifier.size(36.dp).background(Color(color), CircleShape)
                             .border(if (color == selected) 3.dp else 1.dp, if (color == selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                            .clickable(enabled = !actions.saving) { select(color) }
+                            .clickable(enabled = !saving) { select(color) }
                             .semantics { contentDescription = "Цвет: #${accentHex(color)}"; this.selected = color == selected })
                     }
                 }
-                MaterialTheme(colorScheme = preview) {
-                    Surface(color = preview.background, shape = RoundedCornerShape(18.dp), border = androidx.compose.foundation.BorderStroke(1.dp, preview.outlineVariant)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Так будет выглядеть приложение", color = preview.onBackground, style = MaterialTheme.typography.labelMedium)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Surface(color = preview.primary, contentColor = preview.onPrimary, shape = RoundedCornerShape(12.dp)) { Text("12", Modifier.padding(12.dp), style = MaterialTheme.typography.titleMedium) }
-                                Column {
-                                    Text("В своём ритме", color = preview.onSurface, style = MaterialTheme.typography.titleSmall, fontFamily = FontFamily.Serif)
-                                    Text("Дела, мысли и истории", color = preview.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                    }
-                }
-                TextButton(enabled = !actions.saving, onClick = { select(DEFAULT_ACCENT) }) { Text("Вернуть исходный цвет") }
+                preview(selected)
+                TextButton(enabled = !saving, onClick = { select(defaultColor) }) { Text("Вернуть исходный цвет") }
             }
         },
-        confirmButton = { TextButton(enabled = valid && !actions.saving, onClick = {
-            if (hex.length == 6 && !actions.saving) {
-                // Read the current draft even when a reset and apply happen before the next frame.
-                actions.save(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, brightness)), onDismiss)
-            }
-        }) { Text(if (actions.saving) "Сохраняем…" else "Применить") } },
-        dismissButton = { TextButton(enabled = !actions.saving, onClick = onDismiss) { Text("Отмена") } },
+        confirmButton = { TextButton(enabled = valid && !saving, onClick = {
+            if (hex.length == 6 && !saving) onApply(hex.toInt(16) or (0xff shl 24))
+        }) { Text(if (saving) "Сохраняем…" else "Применить") } },
+        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("Отмена") } },
     )
+}
+
+@Composable
+private fun ThemePreview(color: Int) {
+    val preview = remember(color) { diaryColorScheme(color) }
+    MaterialTheme(colorScheme = preview) {
+        Surface(color = preview.background, shape = RoundedCornerShape(18.dp), border = androidx.compose.foundation.BorderStroke(1.dp, preview.outlineVariant)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Так будет выглядеть приложение", color = preview.onBackground, style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Surface(color = preview.primary, contentColor = preview.onPrimary, shape = RoundedCornerShape(12.dp)) { Text("12", Modifier.padding(12.dp), style = MaterialTheme.typography.titleMedium) }
+                    Column {
+                        Text("В своём ритме", color = preview.onSurface, style = MaterialTheme.typography.titleSmall, fontFamily = FontFamily.Serif)
+                        Text("Дела, мысли и истории", color = preview.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
