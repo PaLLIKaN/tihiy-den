@@ -34,6 +34,7 @@ internal fun CoverSearchDialog(kind: MediaKind, initialTitle: String, onDismiss:
     var attempt by remember { mutableIntStateOf(0) }
     val request = CoverRequest(requestedTitle, requestedYear, attempt)
     val isMovie = kind == MediaKind.MOVIE
+    val hasBrowserSearch = kind != MediaKind.BOOK
     val validYear = year.isEmpty() || year.toIntOrNull()?.let { it in 1880..2099 } == true
     var candidates by remember(request) { mutableStateOf<List<CoverCandidate>?>(null) }
     var searchFailed by remember(request) { mutableStateOf(false) }
@@ -90,12 +91,12 @@ internal fun CoverSearchDialog(kind: MediaKind, initialTitle: String, onDismiss:
                     attempt++
                 }
             }
-            Column(Modifier.heightIn(max = if (isMovie) 530.dp else 485.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.heightIn(max = if (hasBrowserSearch) 530.dp else 485.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(title, { title = it.take(COVER_QUERY_LIMIT) }, modifier = Modifier.weight(1f),
-                        label = { Text(if (isMovie) "Название" else "Название для поиска") }, singleLine = true,
+                        label = { Text(if (hasBrowserSearch) "Название" else "Название для поиска") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { startSearch() }))
-                    if (isMovie) {
+                    if (hasBrowserSearch) {
                         OutlinedTextField(year, { year = it.filter { digit -> digit in '0'..'9' }.take(4) }, modifier = Modifier.width(86.dp),
                             label = { Text("Год") }, singleLine = true, isError = !validYear,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Search),
@@ -105,10 +106,10 @@ internal fun CoverSearchDialog(kind: MediaKind, initialTitle: String, onDismiss:
                 val changedQuery = title.trim() != request.title || year != request.year
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = startSearch, enabled = title.isNotBlank() && validYear && (!pending || changedQuery)) { Text("Найти") }
-                    if (isMovie) {
+                    if (hasBrowserSearch) {
                         TextButton(enabled = title.isNotBlank() && validYear, onClick = {
-                            val match = movie?.takeUnless { changedQuery }
-                            val url = CoverSearch.yandexImagesUrl(match?.title ?: title, match?.releaseYear ?: year)
+                            val match = (if (isMovie) movie else candidate)?.takeUnless { changedQuery }
+                            val url = CoverSearch.yandexImagesUrl(match?.title ?: title, match?.releaseYear ?: year, kind)
                             browserFailed = runCatching { uriHandler.openUri(url) }.isFailure
                         }) { Text("Искать в браузере") }
                     }

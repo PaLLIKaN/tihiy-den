@@ -20,6 +20,11 @@ class CoverSearchNetworkTest {
         assertEquals("Мастер и Маргарита 2024 кадр из фильма 16:9", url.getQueryParameter("text"))
     }
 
+    @Test fun yandexSearchUsesSeriesTitleAndYear() {
+        val url = Uri.parse(CoverSearch.yandexImagesUrl("Во все тяжкие (телесериал, 2008)", "2008", MediaKind.SERIES))
+        assertEquals("Во все тяжкие 2008 кадр из сериала 16:9", url.getQueryParameter("text"))
+    }
+
     @Test fun filmArtworkOffersSeveralWideFramesBeforeThePoster() = runBlocking {
         assumeTrue(InstrumentationRegistry.getArguments().getString("verifyNetwork") == "true")
         val context = InstrumentationRegistry.getInstrumentation().targetContext

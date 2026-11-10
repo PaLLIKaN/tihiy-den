@@ -158,7 +158,7 @@ fun ThoughtEditor(thought: Thought, saving: Boolean, onDismiss: () -> Unit, onSa
 }
 
 @Composable
-fun MediaEditor(media: MediaEntry, saving: Boolean, onDismiss: () -> Unit, onSave: (MediaEntry) -> Unit, onDelete: (() -> Unit)?) {
+fun MediaEditor(media: MediaEntry, saving: Boolean, onDismiss: () -> Unit, onSave: (MediaEntry) -> Unit, onDelete: (() -> Unit)?, incomingCover: String? = null, onCoverApplied: () -> Unit = {}) {
     var title by rememberSaveable(media.id) { mutableStateOf(media.title) }
     var creator by rememberSaveable(media.id) { mutableStateOf(media.creator) }
     var thoughts by rememberSaveable(media.id) { mutableStateOf(media.thoughts) }
@@ -171,6 +171,13 @@ fun MediaEditor(media: MediaEntry, saving: Boolean, onDismiss: () -> Unit, onSav
     var coverError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    LaunchedEffect(incomingCover, importing, saving) {
+        if (incomingCover != null && !importing && !saving) {
+            coverReference = incomingCover
+            showCoverSearch = false
+            onCoverApplied()
+        }
+    }
     val resolvedCover by produceState<Pair<String?, String>?>(if (coverReference == null) null to media.cover else null, coverReference, media.cover) {
         try {
             val reference = coverReference

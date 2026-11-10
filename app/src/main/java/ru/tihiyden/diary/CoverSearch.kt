@@ -103,7 +103,7 @@ internal object CoverSearch {
                 val qualifier = name.substringAfterLast('(', "").substringBefore(')')
                 val type = classify(qualifier) ?: classify(description)
                 if (type != kind || (kind == MediaKind.SERIES && (seriesPart.containsMatchIn(qualifier) || seriesPart.containsMatchIn(description)))) return@mapNotNull null
-                val movieYear = if (kind == MediaKind.MOVIE) releaseYear.find(qualifier)?.value ?: releaseYear.find(description)?.value else null
+                val movieYear = if (kind != MediaKind.BOOK) releaseYear.find(qualifier)?.value ?: releaseYear.find(description)?.value else null
                 if (year.isNotEmpty() && movieYear != year) return@mapNotNull null
                 val thumbnail = page.optJSONObject("thumbnail") ?: return@mapNotNull null
                 val image = trustedUri(thumbnail.optString("source").substringBefore('?'), imageHosts)
@@ -169,18 +169,19 @@ internal object CoverSearch {
         return if (height > 0) optInt("width").toDouble() / height else 0.0
     }
 
-    fun yandexImagesUrl(title: String, year: String): String {
+    fun yandexImagesUrl(title: String, year: String, kind: MediaKind = MediaKind.MOVIE): String {
         val qualifier = title.substringAfterLast('(', "").substringBefore(')')
         val cleanTitle = movieTitleWithoutQualifier(title)
         val effectiveYear = year.ifBlank { releaseYear.find(qualifier)?.value.orEmpty() }
-        val terms = listOf(cleanTitle, effectiveYear.takeUnless { it in cleanTitle }.orEmpty(), "кадр из фильма 16:9")
+        val imageQuery = if (kind == MediaKind.SERIES) "кадр из сериала 16:9" else "кадр из фильма 16:9"
+        val terms = listOf(cleanTitle, effectiveYear.takeUnless { it in cleanTitle }.orEmpty(), imageQuery)
         return Uri.parse("https://yandex.ru/images/search").buildUpon()
             .appendQueryParameter("text", terms.filter(String::isNotBlank).joinToString(" ")).build().toString()
     }
 
     private fun movieTitleWithoutQualifier(title: String): String {
         val qualifier = title.substringAfterLast('(', "").substringBefore(')')
-        return if (title.endsWith(')') && (classify(qualifier) == MediaKind.MOVIE || releaseYear.matches(qualifier))) {
+        return if (title.endsWith(')') && (classify(qualifier) in setOf(MediaKind.MOVIE, MediaKind.SERIES) || releaseYear.matches(qualifier))) {
             title.substringBeforeLast('(').trim()
         } else title.trim()
     }

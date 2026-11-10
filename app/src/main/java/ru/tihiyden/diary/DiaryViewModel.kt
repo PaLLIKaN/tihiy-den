@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -32,6 +33,9 @@ class DiaryViewModel internal constructor(application: Application, private val 
     val shareUri = _shareUri.asStateFlow()
     private val _message = MutableStateFlow<String?>(null)
     val message = _message.asStateFlow()
+    private val _sharedCover = MutableStateFlow<SharedCover?>(null)
+    internal val sharedCover = _sharedCover.asStateFlow()
+    private var coverImport: Job? = null
 
     init { mutate { } }
 
@@ -47,6 +51,31 @@ class DiaryViewModel internal constructor(application: Application, private val 
     fun clearMessage() { _message.value = null }
     fun consumeShare() { _shareUri.value = null }
     fun cancelRestore() { if (!_backupBusy.value) _pendingRestore.value = null }
+
+    internal fun importSharedCover(uri: Uri?) {
+        dismissSharedCover()
+        val application = getApplication<Application>()
+        if (uri == null || uri.scheme != "content" || uri.authority.isNullOrBlank() || uri.authority == "${application.packageName}.backup-files") {
+            _sharedCover.value = SharedCover.Error("Не удалось получить изображение. Сохраните его и выберите из галереи.")
+            return
+        }
+        _sharedCover.value = SharedCover.Loading
+        coverImport = viewModelScope.launch {
+            try {
+                val draft = withContext(Dispatchers.IO) { CoverImages.importDraft(application, uri) }
+                _sharedCover.value = SharedCover.Ready(draft)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                _sharedCover.value = SharedCover.Error("Не удалось открыть изображение. Попробуйте другую картинку или выберите её из галереи.")
+            }
+        }
+    }
+
+    internal fun dismissSharedCover() {
+        coverImport?.cancel()
+        coverImport = null
+        _sharedCover.value = null
+    }
 
     private suspend fun snapshot(): ByteArray = withContext(Dispatchers.IO) {
         mutex.withLock { BackupCodec.encode(store.read()) }

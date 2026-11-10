@@ -1,9 +1,11 @@
 package ru.tihiyden.diary
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -32,19 +34,31 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 class MainActivity : ComponentActivity() {
+    private val diary: DiaryViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState == null) acceptSharedImage(intent)
         setContent {
             val theme: ThemeViewModel = viewModel()
             val accent by theme.accent.collectAsStateWithLifecycle()
             val saving by theme.saving.collectAsStateWithLifecycle()
             val error by theme.error.collectAsStateWithLifecycle()
             DiaryTheme(accent, saving, theme::save) {
-                DiaryApp()
+                DiaryApp(diary)
                 if (error) AlertDialog(onDismissRequest = theme::clearError, title = { Text("Цветовая гамма") }, text = { Text("Не удалось сохранить цвет. Попробуйте ещё раз.") }, confirmButton = { TextButton(onClick = theme::clearError) { Text("Понятно") } })
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        acceptSharedImage(intent)
+    }
+
+    private fun acceptSharedImage(intent: Intent) {
+        if (intent.action == Intent.ACTION_SEND) diary.importSharedCover(intent.sharedImageUri())
     }
 }
 
@@ -68,6 +82,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
     val error by vm.error.collectAsStateWithLifecycle()
     val working by vm.working.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
+    val sharedCover by vm.sharedCover.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val today by produceState(LocalDate.now(), lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -85,6 +100,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
     var entryEditor by rememberSaveable(stateSaver = DayEntrySaver) { mutableStateOf<DayEntry?>(null) }
     var thoughtEditor by rememberSaveable(stateSaver = ThoughtSaver) { mutableStateOf<Thought?>(null) }
     var mediaEditor by rememberSaveable(stateSaver = MediaEntrySaver) { mutableStateOf<MediaEntry?>(null) }
+    var incomingCover by rememberSaveable { mutableStateOf<String?>(null) }
     var themePicker by rememberSaveable { mutableStateOf(false) }
     var holidayPicker by rememberSaveable { mutableStateOf(false) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -226,9 +242,33 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
     if (ready) mediaEditor?.let { media ->
         // The database supplies the original cover after recreation; images never enter the saved-state Bundle.
         val original = data.media.firstOrNull { it.id == media.id } ?: media
-        MediaEditor(original, saving = working, onDismiss = { mediaEditor = null },
-            onSave = { vm.save(it) { mediaEditor = null } },
-            onDelete = if (data.media.any { it.id == media.id }) ({ vm.delete(media) { mediaEditor = null } }) else null)
+        val closeEditor = { mediaEditor = null; incomingCover = null }
+        MediaEditor(original, saving = working, onDismiss = closeEditor,
+            onSave = { vm.save(it, closeEditor) },
+            onDelete = if (data.media.any { it.id == media.id }) ({ vm.delete(media, closeEditor) }) else null,
+            incomingCover = incomingCover, onCoverApplied = { incomingCover = null })
+    }
+    when (val share = sharedCover) {
+        SharedCover.Loading -> AlertDialog(onDismissRequest = vm::dismissSharedCover,
+            title = { Text("Открываем изображение…") }, text = { LinearProgressIndicator(Modifier.fillMaxWidth()) },
+            confirmButton = { TextButton(onClick = vm::dismissSharedCover) { Text("Отмена") } })
+        is SharedCover.Error -> AlertDialog(onDismissRequest = vm::dismissSharedCover,
+            title = { Text("Обложка") }, text = { Text(share.message) },
+            confirmButton = { TextButton(onClick = vm::dismissSharedCover) { Text("Понятно") } })
+        is SharedCover.Ready -> if (ready) key(share.reference) {
+            val defaultKind = if (section == Section.MEDIA) mediaKind else MediaKind.MOVIE
+            SharedCoverDialog(share.reference, data.media, mediaEditor != null, defaultKind, working, vm::dismissSharedCover) { selected ->
+                if (mediaEditor == null) {
+                    val item = selected ?: MediaEntry(kind = defaultKind)
+                    sectionName = Section.MEDIA.name
+                    mediaKindName = item.kind.name
+                    mediaEditor = item
+                }
+                incomingCover = share.reference
+                vm.dismissSharedCover()
+            }
+        }
+        null -> Unit
     }
     if (error != null) AlertDialog(onDismissRequest = vm::clearError,
         title = { Text("Не удалось выполнить действие") }, text = { Text(error.orEmpty()) },
