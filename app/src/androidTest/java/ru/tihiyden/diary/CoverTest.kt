@@ -106,11 +106,18 @@ class CoverTest {
             thoughts = listOf(Thought(id = "note", text = "Моя мысль", createdAt = 123, updatedAt = 456)),
             media = listOf(MediaEntry(id = "book", title = "Моя книга", creator = "Автор", status = MediaStatus.DONE, thoughts = "Впечатления", updatedAt = 789)),
         )
-        for (version in 1..2) {
-            val book = if (version == 2) original.media.single().copy(cover = sampleCover()) else original.media.single()
-            val legacy = original.copy(media = listOf(book))
+        for (version in 1..3) {
+            val book = if (version >= 2) original.media.single().copy(cover = sampleCover()) else original.media.single()
+            val task = original.entries.single().let {
+                if (version >= 3) it.copy(priority = TaskPriority.HIGH, dueDate = it.date.plusDays(1)) else it
+            }
+            val legacy = original.copy(entries = listOf(task), media = listOf(book))
             val json = JSONObject(BackupCodec.encode(legacy).toString(Charsets.UTF_8)).put("version", version)
-            json.getJSONArray("entries").getJSONObject(0).apply { remove("priority"); remove("dueDate") }
+            json.getJSONArray("entries").getJSONObject(0).apply {
+                remove("dueTime")
+                if (version < 3) { remove("priority"); remove("dueDate") }
+            }
+            json.getJSONArray("thoughts").getJSONObject(0).remove("title")
             if (version == 1) json.getJSONArray("media").getJSONObject(0).remove("cover")
             assertEquals(legacy, BackupCodec.decode(json.toString().toByteArray()).data)
             val name = "legacy_${UUID.randomUUID()}.db"
@@ -122,15 +129,20 @@ class CoverTest {
                 db.execSQL("INSERT INTO day_entries VALUES ('task','Важное дело','',?,'','TASK',1)", arrayOf(original.entries.single().date.toString()))
                 db.execSQL("INSERT INTO thoughts VALUES ('note','Моя мысль',123,456)")
                 db.execSQL("INSERT INTO media VALUES ('book','Моя книга','Автор','BOOK','DONE','Впечатления',789)")
-                    if (version == 2) {
+                    if (version >= 2) {
                         db.execSQL("ALTER TABLE media ADD COLUMN cover TEXT NOT NULL DEFAULT ''")
                         db.execSQL("UPDATE media SET cover = ? WHERE id = 'book'", arrayOf(book.cover))
+                    }
+                    if (version >= 3) {
+                        db.execSQL("ALTER TABLE day_entries ADD COLUMN priority TEXT NOT NULL DEFAULT 'NORMAL'")
+                        db.execSQL("ALTER TABLE day_entries ADD COLUMN due_day TEXT")
+                        db.execSQL("UPDATE day_entries SET priority = 'HIGH', due_day = ? WHERE id = 'task'", arrayOf(task.dueDate.toString()))
                     }
                     db.version = version
                 }
                 DiaryStore(context, name).use { store ->
                     assertEquals(legacy, store.read())
-                    assertEquals(3, store.readableDatabase.version)
+                    assertEquals(4, store.readableDatabase.version)
                     val updated = legacy.entries.single().copy(priority = TaskPriority.HIGH, dueDate = legacy.entries.single().date.plusDays(2))
                     store.save(updated)
                     assertEquals(legacy.copy(entries = listOf(updated)), store.read())

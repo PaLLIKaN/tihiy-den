@@ -225,4 +225,25 @@ class HolidayUiTest {
             }
         } finally { assertTrue(preferences.save(originalSettings)) }
     }
+
+    @Test fun logoOpensIndependentReminderSettings() {
+        val context = instrumentation.targetContext
+        val original = ReminderScheduler.readSettings(context)
+        try {
+            ReminderScheduler.saveSettings(context, ReminderSettings())
+            ActivityScenario.launch(MainActivity::class.java).use {
+                click(awaitNode { it.contentDescription?.toString() == "О приложении" })
+                click(text("Настройки уведомлений"))
+                text("Уведомления")
+                click(text("Сроки задач"))
+                click(text("За 2 часа"))
+                click(text("Совет на выходные"))
+                assertEquals(ReminderSettings(tasks = true, leadHours = 2, weekend = true), ReminderScheduler.readSettings(context))
+                click(text("Сроки задач"))
+                assertEquals(ReminderSettings(leadHours = 2, weekend = true), ReminderScheduler.readSettings(context))
+                click(text("Готово"))
+                text("Репозиторий на GitHub")
+            }
+        } finally { ReminderScheduler.saveSettings(context, original) }
+    }
 }

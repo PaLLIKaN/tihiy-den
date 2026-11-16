@@ -7,6 +7,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 
 data class DiaryBackup(val data: DiaryData, val exportedAt: Instant)
 enum class RestoreMode { MERGE_MISSING, REPLACE_ALL }
@@ -15,7 +16,7 @@ data class RestoreResult(val count: Int, val data: DiaryData)
 object BackupCodec {
     const val MAX_BYTES = 20 * 1024 * 1024
     private const val FORMAT = "ru.tihiyden.diary.backup"
-    private const val VERSION = 3
+    private const val VERSION = 4
     private const val MAX_RECORDS = 100_000
 
     fun encode(data: DiaryData, exportedAt: Instant = Instant.now()): ByteArray {
@@ -27,9 +28,11 @@ object BackupCodec {
                     .put("date", item.date.toString()).put("time", item.time)
                     .put("kind", item.kind.name).put("done", item.done)
                     .put("priority", item.priority.name).put("dueDate", item.dueDate?.toString().orEmpty())
+                    .put("dueTime", item.dueTime?.toString().orEmpty())
             })
             .put("thoughts", array(data.thoughts) { item ->
                 JSONObject().put("id", item.id).put("text", item.text)
+                    .put("title", item.title)
                     .put("createdAt", item.createdAt).put("updatedAt", item.updatedAt)
             })
             .put("media", array(data.media) { item ->
@@ -60,10 +63,12 @@ object BackupCodec {
                 require(done is Boolean)
                 DayEntry(item.string("id"), item.string("title"), item.string("details"), LocalDate.parse(item.string("date")), item.string("time"), EntryKind.valueOf(item.string("kind")), done,
                     priority = if (version >= 3) TaskPriority.valueOf(item.string("priority")) else TaskPriority.NORMAL,
-                    dueDate = if (version >= 3) item.string("dueDate").takeIf { it.isNotEmpty() }?.let(LocalDate::parse) else null)
+                    dueDate = if (version >= 3) item.string("dueDate").takeIf { it.isNotEmpty() }?.let(LocalDate::parse) else null,
+                    dueTime = if (version >= 4) item.string("dueTime").takeIf { it.isNotEmpty() }?.let(LocalTime::parse) else null)
             }
             val thoughts = objects(root.getJSONArray("thoughts")).map { item ->
-                Thought(item.string("id"), item.string("text"), item.integer("createdAt"), item.integer("updatedAt"))
+                Thought(item.string("id"), item.string("text"), item.integer("createdAt"), item.integer("updatedAt"),
+                    if (version >= 4) item.string("title") else "")
             }
             val media = objects(root.getJSONArray("media")).map { item ->
                 MediaEntry(item.string("id"), item.string("title"), item.string("creator"), MediaKind.valueOf(item.string("kind")), MediaStatus.valueOf(item.string("status")), item.string("thoughts"), item.integer("updatedAt"), if (version >= 2) item.string("cover") else "")
@@ -103,7 +108,7 @@ object BackupCodec {
             require(it.time.isEmpty() || it.time.matches(Regex("(?:[01][0-9]|2[0-3]):[0-5][0-9]")))
             it.validateSchedule()
         }
-        data.thoughts.forEach { require(it.text.isNotBlank()); require(it.createdAt >= 0 && it.updatedAt >= 0) }
+        data.thoughts.forEach { require(it.title.isNotBlank() || it.text.isNotBlank()); require(it.createdAt >= 0 && it.updatedAt >= 0) }
         data.media.forEach { require(it.title.isNotBlank()); require(it.updatedAt >= 0); CoverImages.validate(it.cover) }
     }
 

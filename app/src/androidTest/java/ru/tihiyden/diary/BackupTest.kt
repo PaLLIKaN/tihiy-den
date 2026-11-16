@@ -13,6 +13,7 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
@@ -21,10 +22,11 @@ class BackupTest {
     private fun fixture(): DiaryData = DiaryData(
         entries = listOf(
             DayEntry(id = "task", title = "Задача 📚", details = "Строка 1\n\"Строка 2\"", date = LocalDate.of(2028, 2, 29), time = "23:59", done = true,
-                priority = TaskPriority.HIGH, dueDate = LocalDate.of(2028, 3, 2)),
+                priority = TaskPriority.HIGH, dueDate = LocalDate.of(2028, 3, 2), dueTime = LocalTime.of(19, 45)),
             DayEntry(id = "event", title = "Встреча", date = LocalDate.of(2026, 10, 27), kind = EntryKind.EVENT),
         ),
-        thoughts = listOf(Thought("note", "Мысль\nс новой строкой и ё", 1234, 9876)),
+        thoughts = listOf(Thought("note", "Мысль\nс новой строкой и ё", 1234, 9876, "Заголовок"),
+            Thought("title-only", "", 12345, 23456, "Короткая заметка")),
         media = listOf(
             MediaEntry("book", "Книга", "Автор", MediaKind.BOOK, MediaStatus.DONE, "Впечатления 🎉", 12345),
             MediaEntry("movie", "Фильм", "Режиссёр", MediaKind.MOVIE, MediaStatus.PLANNED, "Посмотреть", 23456),
@@ -69,7 +71,9 @@ class BackupTest {
             { it.getJSONArray("entries").getJSONObject(1).put("dueDate", "2026-10-28") },
             { it.getJSONArray("entries").getJSONObject(0).put("title", 123) },
             { it.getJSONArray("entries").put(it.getJSONArray("entries").getJSONObject(0)) },
-            { it.getJSONArray("thoughts").getJSONObject(0).put("text", " ") },
+            { it.getJSONArray("thoughts").getJSONObject(0).put("text", " ").put("title", "") },
+            { it.getJSONArray("entries").getJSONObject(0).put("dueTime", "18:00:30") },
+            { it.getJSONArray("entries").getJSONObject(1).put("dueTime", "18:00") },
             { it.getJSONArray("thoughts").getJSONObject(0).put("createdAt", 1.25) },
             { it.getJSONArray("media").getJSONObject(0).put("status", "UNKNOWN") },
             { it.put("exportedAt", "+999999999-01-01T00:00:00Z") },
@@ -93,7 +97,7 @@ class BackupTest {
         val current = fixture().entries.first().copy(title = "Моя новая редакция")
         store.save(current)
         val first = store.restore(fixture(), RestoreMode.MERGE_MISSING)
-        assertEquals(5, first.count)
+        assertEquals(6, first.count)
         assertEquals(current, first.data.entries.single { it.id == current.id })
         assertEquals(0, store.restore(fixture(), RestoreMode.MERGE_MISSING).count)
         assertEquals(2, store.read().entries.size)
@@ -105,7 +109,7 @@ class BackupTest {
         store.save(Thought(id = "old-note", text = "Другая мысль"))
         store.save(MediaEntry(id = "old-book", title = "Другая книга"))
         val result = store.restore(BackupCodec.decode(BackupCodec.encode(fixture())).data, RestoreMode.REPLACE_ALL)
-        assertEquals(6, result.count)
+        assertEquals(7, result.count)
         assertData(fixture(), result.data)
         DiaryStore(context, name).use { reopened -> assertData(fixture(), reopened.read()) }
     }

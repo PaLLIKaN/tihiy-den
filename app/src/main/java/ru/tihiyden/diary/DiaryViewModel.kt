@@ -39,13 +39,13 @@ class DiaryViewModel internal constructor(application: Application, private val 
 
     init { mutate { } }
 
-    fun save(value: DayEntry, onSaved: () -> Unit) = mutate(onSaved) { save(value) }
+    fun save(value: DayEntry, onSaved: () -> Unit) = mutate(onSaved, reschedule = true) { save(value) }
     fun save(value: Thought, onSaved: () -> Unit) = mutate(onSaved) { save(value) }
-    fun save(value: MediaEntry, onSaved: () -> Unit) = mutate(onSaved) { save(value) }
-    fun toggle(value: DayEntry) = mutate { toggleEntry(value.id) }
-    fun delete(value: DayEntry, onSaved: () -> Unit) = mutate(onSaved) { deleteEntry(value.id) }
+    fun save(value: MediaEntry, onSaved: () -> Unit) = mutate(onSaved, reschedule = true) { save(value) }
+    fun toggle(value: DayEntry) = mutate(reschedule = true) { toggleEntry(value.id) }
+    fun delete(value: DayEntry, onSaved: () -> Unit) = mutate(onSaved, reschedule = true) { deleteEntry(value.id) }
     fun delete(value: Thought, onSaved: () -> Unit) = mutate(onSaved) { deleteThought(value.id) }
-    fun delete(value: MediaEntry, onSaved: () -> Unit) = mutate(onSaved) { deleteMedia(value.id) }
+    fun delete(value: MediaEntry, onSaved: () -> Unit) = mutate(onSaved, reschedule = true) { deleteMedia(value.id) }
     fun clearError() { _error.value = null }
     fun reportError(message: String) { _error.value = message }
     fun clearMessage() { _message.value = null }
@@ -119,6 +119,7 @@ class DiaryViewModel internal constructor(application: Application, private val 
                 withContext(Dispatchers.IO) {
                     val result = store.restore(backup.data, mode)
                     _data.value = result.data
+                    ReminderScheduler.refresh(getApplication())
                     result.count
                 }
             }
@@ -140,7 +141,7 @@ class DiaryViewModel internal constructor(application: Application, private val 
         }
     }
 
-    private fun mutate(onSaved: () -> Unit = {}, action: DiaryStore.() -> Unit) {
+    private fun mutate(onSaved: () -> Unit = {}, reschedule: Boolean = false, action: DiaryStore.() -> Unit) {
         viewModelScope.launch {
             try {
                 mutex.withLock {
@@ -148,6 +149,7 @@ class DiaryViewModel internal constructor(application: Application, private val 
                     try {
                         _data.value = withContext(Dispatchers.IO) {
                             store.action()
+                            if (reschedule) ReminderScheduler.refresh(getApplication())
                             store.read()
                         }
                         _ready.value = true

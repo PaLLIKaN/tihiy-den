@@ -79,19 +79,21 @@ fun EntryEditor(entry: DayEntry, saving: Boolean, onDismiss: () -> Unit, onSave:
     var kindName by rememberSaveable(entry.id) { mutableStateOf(entry.kind.name) }
     var priorityName by rememberSaveable(entry.id) { mutableStateOf(entry.priority.name) }
     var dueDateText by rememberSaveable(entry.id) { mutableStateOf(entry.dueDate?.toString()) }
+    var dueTimeText by rememberSaveable(entry.id) { mutableStateOf(entry.dueTime?.toString()) }
     val date = LocalDate.parse(dateText)
     val kind = EntryKind.valueOf(kindName)
     val isTask = kind == EntryKind.TASK
     val priority = if (isTask) TaskPriority.valueOf(priorityName) else TaskPriority.NORMAL
     val dueDate = if (isTask) dueDateText?.let(LocalDate::parse) else null
+    val dueTime = dueDate?.let { dueTimeText?.let(LocalTime::parse) }
     val validDueDate = dueDate == null || dueDate >= date
     val dateFormat = remember { DateTimeFormatter.ofPattern("d MMMM yyyy", Russian) }
     val context = LocalContext.current
     val dirty = title != entry.title || details != entry.details || date != entry.date || time != entry.time || kind != entry.kind ||
-        priority != entry.priority || dueDate != entry.dueDate
+        priority != entry.priority || dueDate != entry.dueDate || dueTime != entry.dueTime
     EditorFrame(if (onDelete == null) "Новое дело" else "Ваше дело", title.isNotBlank() && validDueDate, dirty, saving, onDismiss,
         { onSave(entry.copy(title = title.trim(), details = details.trim(), date = date, time = time, kind = kind,
-            done = isTask && entry.done, priority = priority, dueDate = dueDate)) }, onDelete) {
+            done = isTask && entry.done, priority = priority, dueDate = dueDate, dueTime = dueTime)) }, onDelete) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             EntryKind.entries.forEach { item -> FilterChip(selected = item == kind, onClick = { kindName = item.name }, label = { Text(item.label) }) }
         }
@@ -117,7 +119,19 @@ fun EntryEditor(entry: DayEntry, saving: Boolean, onDismiss: () -> Unit, onSave:
                         Spacer(Modifier.width(10.dp))
                         Text(dueDate?.let { "Срок: ${it.format(dateFormat)}" } ?: "Указать срок выполнения")
                     }
-                    if (dueDate != null) IconButton(onClick = { dueDateText = null }) { Icon(Icons.Outlined.Close, "Убрать срок") }
+                    if (dueDate != null) IconButton(onClick = {
+                        dueDateText = null
+                        dueTimeText = null
+                    }) { Icon(Icons.Outlined.Close, "Убрать срок") }
+                }
+                if (dueDate != null) OutlinedButton(onClick = {
+                    val initial = dueTime ?: DefaultDueTime
+                    TimePickerDialog(context, { _, hour, minute -> dueTimeText = LocalTime.of(hour, minute).toString() },
+                        initial.hour, initial.minute, true).show()
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.Schedule, null)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Время срока · ${dueTime ?: DefaultDueTime}")
                 }
                 Text(if (validDueDate) "Задача видна с даты начала по срок включительно." else "Срок не может быть раньше даты начала.",
                     style = MaterialTheme.typography.bodySmall, color = if (validDueDate) Muted else MaterialTheme.colorScheme.error)
@@ -148,10 +162,13 @@ fun EntryEditor(entry: DayEntry, saving: Boolean, onDismiss: () -> Unit, onSave:
 
 @Composable
 fun ThoughtEditor(thought: Thought, saving: Boolean, onDismiss: () -> Unit, onSave: (Thought) -> Unit, onDelete: (() -> Unit)?) {
+    var title by rememberSaveable(thought.id) { mutableStateOf(thought.title) }
     var text by rememberSaveable(thought.id) { mutableStateOf(thought.text) }
-    EditorFrame(if (onDelete == null) "Новая мысль" else "Ваша мысль", text.isNotBlank(), text != thought.text, saving, onDismiss,
-        { onSave(thought.copy(text = text.trim(), updatedAt = System.currentTimeMillis())) }, onDelete) {
+    EditorFrame(if (onDelete == null) "Новая заметка" else "Заметка", title.isNotBlank() || text.isNotBlank(),
+        title != thought.title || text != thought.text, saving, onDismiss,
+        { onSave(thought.copy(title = title.trim(), text = text.trim(), updatedAt = System.currentTimeMillis())) }, onDelete) {
         Text(timestamp(thought.createdAt), style = MaterialTheme.typography.labelSmall, color = Muted.copy(alpha = .75f))
+        OutlinedTextField(title, { title = it }, label = { Text("Заголовок") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(text, { text = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("О чём вы сейчас думаете?") }, minLines = 10)
         VoiceInput { text = appendDictation(text, it) }
     }

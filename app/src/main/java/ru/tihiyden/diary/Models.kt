@@ -1,12 +1,15 @@
 package ru.tihiyden.diary
 
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.YearMonth
 import java.util.UUID
 
 enum class EntryKind(val label: String) { TASK("Задача"), EVENT("Событие") }
 enum class TaskPriority(val label: String) { LOW("Низкий"), NORMAL("Обычный"), HIGH("Высокий") }
 enum class TaskStatus(val label: String) { ALL("Все"), OPEN("В работе"), DONE("Выполнены") }
+val DefaultDueTime: LocalTime = LocalTime.of(18, 0)
 
 data class TaskFilter(val status: TaskStatus = TaskStatus.ALL, val priority: TaskPriority? = null) {
     val labels: List<String> get() = listOfNotNull(status.takeUnless { it == TaskStatus.ALL }?.label, priority?.label)
@@ -39,12 +42,15 @@ data class DayEntry(
     val done: Boolean = false,
     val priority: TaskPriority = TaskPriority.NORMAL,
     val dueDate: LocalDate? = null,
+    val dueTime: LocalTime? = null,
 ) {
     val lastDay: LocalDate get() = if (kind == EntryKind.TASK) dueDate ?: date else date
+    val deadline: LocalDateTime? get() = dueDate?.atTime(dueTime ?: DefaultDueTime)
     fun occursOn(day: LocalDate): Boolean = day >= date && day <= lastDay
 
     fun validateSchedule() {
         require(dueDate == null || dueDate >= date)
+        require(dueTime == null || dueDate != null && dueTime.second == 0 && dueTime.nano == 0)
         require(kind == EntryKind.TASK || (priority == TaskPriority.NORMAL && dueDate == null))
     }
 }
@@ -54,6 +60,7 @@ data class Thought(
     val text: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = createdAt,
+    val title: String = "",
 )
 
 data class MediaEntry(

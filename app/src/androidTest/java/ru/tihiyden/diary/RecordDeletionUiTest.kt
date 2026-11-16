@@ -1,9 +1,7 @@
 package ru.tihiyden.diary
 
 import android.graphics.Rect
-import android.os.ParcelFileDescriptor
 import android.os.SystemClock
-import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.lifecycle.viewModelScope
@@ -73,14 +71,16 @@ class RecordDeletionUiTest {
     }
 
     private fun hold(node: AccessibilityNodeInfo) {
-        val bounds = Rect().also(node::getBoundsInScreen)
-        val x = bounds.left + bounds.width() / 4
-        val y = bounds.centerY()
-        val duration = ViewConfiguration.getLongPressTimeout() + 500
-        val output = automation.executeShellCommand("input swipe $x $y $x $y $duration")
-        ParcelFileDescriptor.AutoCloseInputStream(output).bufferedReader().use { stream ->
-            assertTrue(stream.readText().isBlank())
+        var current: AccessibilityNodeInfo? = node
+        while (current != null) {
+            if (current.isEnabled && current.isLongClickable &&
+                current.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) {
+                automation.waitForIdle(200, 5_000)
+                return
+            }
+            current = current.parent
         }
+        error("No long-click action for ${node.text}")
     }
 
     private fun navigate(section: Section) {
@@ -102,7 +102,7 @@ class RecordDeletionUiTest {
         val today = LocalDate.now()
         val task = DayEntry(title = "Проверка долгого нажатия", date = today.minusDays(1), dueDate = today.plusDays(1))
         val event = DayEntry(title = "Тестовое событие", date = today, kind = EntryKind.EVENT)
-        val thought = Thought(text = "Тестовая мысль")
+        val thought = Thought(title = "Тестовая заметка", text = "Тестовая мысль")
         val keep = Thought(text = "Другая мысль должна остаться", createdAt = 1)
         val media = listOf(
             MediaEntry(title = "Тестовая книга", kind = MediaKind.BOOK),
@@ -132,10 +132,12 @@ class RecordDeletionUiTest {
                         delete(event.title, "Удалить событие?")
 
                         navigate(Section.THOUGHTS)
-                        click(visibleCard(thought.text))
-                        text("Ваша мысль")
+                        click(visibleCard(thought.title))
+                        text("Заметка")
+                        text("Заголовок")
+                        text(thought.title)
                         click(awaitNode("close editor") { it.contentDescription?.toString() == "Закрыть" })
-                        delete(thought.text, "Удалить мысль?")
+                        delete(thought.title, "Удалить заметку?")
 
                         navigate(Section.MEDIA)
                         delete(media[0].title, "Удалить книгу?")

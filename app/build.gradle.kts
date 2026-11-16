@@ -11,8 +11,8 @@ android {
         applicationId = "ru.tihiyden.diary"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.8.5"
+        versionCode = 15
+        versionName = "0.9.0"
         resValue("string", "app_version", versionName!!)
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

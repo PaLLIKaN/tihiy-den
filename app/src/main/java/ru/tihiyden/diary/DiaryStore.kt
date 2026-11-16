@@ -5,13 +5,14 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import java.time.LocalDate
+import java.time.LocalTime
 
 /** A private on-device database. Each user action updates one row atomically. */
-class DiaryStore(context: Context, databaseName: String = "diary.db") : SQLiteOpenHelper(context, databaseName, null, 3) {
+class DiaryStore(context: Context, databaseName: String = "diary.db") : SQLiteOpenHelper(context, databaseName, null, 4) {
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE day_entries (id TEXT PRIMARY KEY, title TEXT NOT NULL, details TEXT NOT NULL, day TEXT NOT NULL, time TEXT NOT NULL, kind TEXT NOT NULL, done INTEGER NOT NULL, priority TEXT NOT NULL DEFAULT 'NORMAL', due_day TEXT)")
+        db.execSQL("CREATE TABLE day_entries (id TEXT PRIMARY KEY, title TEXT NOT NULL, details TEXT NOT NULL, day TEXT NOT NULL, time TEXT NOT NULL, kind TEXT NOT NULL, done INTEGER NOT NULL, priority TEXT NOT NULL DEFAULT 'NORMAL', due_day TEXT, due_time TEXT)")
         db.execSQL("CREATE INDEX entries_day ON day_entries(day)")
-        db.execSQL("CREATE TABLE thoughts (id TEXT PRIMARY KEY, text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE thoughts (id TEXT PRIMARY KEY, text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '')")
         db.execSQL("CREATE TABLE media (id TEXT PRIMARY KEY, title TEXT NOT NULL, creator TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, thoughts TEXT NOT NULL, updated_at INTEGER NOT NULL, cover TEXT NOT NULL DEFAULT '')")
     }
 
@@ -21,19 +22,23 @@ class DiaryStore(context: Context, databaseName: String = "diary.db") : SQLiteOp
             db.execSQL("ALTER TABLE day_entries ADD COLUMN priority TEXT NOT NULL DEFAULT 'NORMAL'")
             db.execSQL("ALTER TABLE day_entries ADD COLUMN due_day TEXT")
         }
+        if (oldVersion < 4) {
+            db.execSQL("ALTER TABLE day_entries ADD COLUMN due_time TEXT")
+            db.execSQL("ALTER TABLE thoughts ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+        }
     }
 
     fun read(): DiaryData {
         val db = readableDatabase
         val entries = buildList {
-            db.rawQuery("SELECT id,title,details,day,time,kind,done,priority,due_day FROM day_entries", null).use { c ->
+            db.rawQuery("SELECT id,title,details,day,time,kind,done,priority,due_day,due_time FROM day_entries", null).use { c ->
                 while (c.moveToNext()) add(DayEntry(c.getString(0), c.getString(1), c.getString(2), LocalDate.parse(c.getString(3)), c.getString(4), EntryKind.valueOf(c.getString(5)), c.getInt(6) == 1,
-                    TaskPriority.valueOf(c.getString(7)), if (c.isNull(8)) null else LocalDate.parse(c.getString(8))))
+                    TaskPriority.valueOf(c.getString(7)), c.getString(8)?.let(LocalDate::parse), c.getString(9)?.let(LocalTime::parse)))
             }
         }
         val thoughts = buildList {
-            db.rawQuery("SELECT id,text,created_at,updated_at FROM thoughts ORDER BY created_at DESC", null).use { c ->
-                while (c.moveToNext()) add(Thought(c.getString(0), c.getString(1), c.getLong(2), c.getLong(3)))
+            db.rawQuery("SELECT id,text,created_at,updated_at,title FROM thoughts ORDER BY created_at DESC", null).use { c ->
+                while (c.moveToNext()) add(Thought(c.getString(0), c.getString(1), c.getLong(2), c.getLong(3), c.getString(4)))
             }
         }
         val media = buildList {
@@ -51,11 +56,12 @@ class DiaryStore(context: Context, databaseName: String = "diary.db") : SQLiteOp
             put("day", entry.date.toString()); put("time", entry.time)
             put("kind", entry.kind.name); put("done", if (entry.done) 1 else 0)
             put("priority", entry.priority.name); put("due_day", entry.dueDate?.toString())
+            put("due_time", entry.dueTime?.toString())
         })
     }
 
     fun save(thought: Thought) = upsert("thoughts", ContentValues().apply {
-        put("id", thought.id); put("text", thought.text)
+        put("id", thought.id); put("text", thought.text); put("title", thought.title)
         put("created_at", thought.createdAt); put("updated_at", thought.updatedAt)
     })
 

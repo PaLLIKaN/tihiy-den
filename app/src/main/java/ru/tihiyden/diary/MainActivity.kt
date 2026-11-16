@@ -37,18 +37,19 @@ import java.time.LocalDate
 
 class MainActivity : ComponentActivity() {
     private val diary: DiaryViewModel by viewModels()
+    private var reminder by mutableStateOf<Intent?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (savedInstanceState == null) acceptShare(intent)
+        if (savedInstanceState == null) acceptIntent(intent)
         setContent {
             val theme: ThemeViewModel = viewModel()
             val accent by theme.accent.collectAsStateWithLifecycle()
             val saving by theme.saving.collectAsStateWithLifecycle()
             val error by theme.error.collectAsStateWithLifecycle()
             DiaryTheme(accent, saving, theme::save) {
-                DiaryApp(diary)
+                DiaryApp(diary, reminder) { reminder = null }
                 if (error) AlertDialog(onDismissRequest = theme::clearError, title = { Text("Цветовая гамма") }, text = { Text("Не удалось сохранить цвет. Попробуйте ещё раз.") }, confirmButton = { TextButton(onClick = theme::clearError) { Text("Понятно") } })
             }
         }
@@ -56,10 +57,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        acceptShare(intent)
+        acceptIntent(intent)
     }
 
-    private fun acceptShare(intent: Intent) {
+    override fun onResume() {
+        super.onResume()
+        ReminderScheduler.refresh(this)
+    }
+
+    private fun acceptIntent(intent: Intent) {
+        if (intent.action == OPEN_REMINDER) reminder = intent
         if (intent.action != Intent.ACTION_SEND) return
         if (intent.type in sharedLinkMimeTypes) diary.offerSharedCoverLink(intent.sharedCoverLink())
         else diary.importSharedCover(intent.sharedImageUri())
@@ -68,16 +75,16 @@ class MainActivity : ComponentActivity() {
 
 enum class Section(val title: String, val subtitle: String, val icon: ImageVector) {
     CALENDAR("Календарь", "Место для важных дел", Icons.Outlined.CalendarMonth),
-    THOUGHTS("Мысли", "Можно просто быть собой", Icons.Outlined.EditNote),
+    THOUGHTS("Заметки", "Мысли, которые хочется сохранить", Icons.Outlined.EditNote),
     MEDIA("Развлечения", "Истории, которые остаются", Icons.Outlined.AutoStories),
     BACKUP("Резервная копия", "Сохранить и перенести свои записи", Icons.Outlined.CloudUpload),
 }
 
-private enum class AppPanel { ABOUT, HOLIDAYS }
+private enum class AppPanel { ABOUT, HOLIDAYS, REMINDERS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiaryApp(vm: DiaryViewModel = viewModel()) {
+fun DiaryApp(vm: DiaryViewModel = viewModel(), reminder: Intent? = null, onReminderOpened: () -> Unit = {}) {
     val holidayVm: HolidayViewModel = viewModel()
     val holidaySettings by holidayVm.settings.collectAsStateWithLifecycle()
     val holidays by holidayVm.state.collectAsStateWithLifecycle()
@@ -110,6 +117,34 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
     var themePicker by rememberSaveable { mutableStateOf(false) }
     var appPanel by rememberSaveable { mutableStateOf<AppPanel?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val editorOpen = entryEditor != null || thoughtEditor != null || mediaEditor != null
+    LaunchedEffect(reminder, ready, editorOpen) {
+        if (reminder == null || !ready || editorOpen) return@LaunchedEffect
+        val taskId = reminder.getStringExtra(REMINDER_TASK_ID)
+        val mediaId = reminder.getStringExtra(REMINDER_MEDIA_ID)
+        val task = data.entries.firstOrNull { it.id == taskId && it.kind == EntryKind.TASK }
+        val media = data.media.firstOrNull { it.id == mediaId }
+        when {
+            task != null -> {
+                sectionName = Section.CALENDAR.name
+                selectedDay = (task.dueDate ?: task.date).toString()
+                entryEditor = task
+            }
+            media != null -> {
+                sectionName = Section.MEDIA.name
+                mediaKindName = media.kind.name
+                mediaEditor = media
+            }
+        }
+        if (task != null || media != null) {
+            appPanel = null
+            themePicker = false
+            deleteId = null
+            scope.launch { drawer.close() }
+        }
+        onReminderOpened()
+    }
 
     val calendarYear = LocalDate.parse(selectedDay).year
     val needsHolidays = section == Section.CALENDAR || appPanel == AppPanel.HOLIDAYS
@@ -161,7 +196,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
             },
             snackbarHost = { SnackbarHost(snackbar) },
             floatingActionButton = {
-                val actionLabel = when (section) { Section.CALENDAR -> "Добавить дело"; Section.THOUGHTS -> "Записать мысль"; Section.MEDIA -> "Добавить"; Section.BACKUP -> "" }
+                val actionLabel = when (section) { Section.CALENDAR -> "Добавить дело"; Section.THOUGHTS -> "Новая заметка"; Section.MEDIA -> "Добавить"; Section.BACKUP -> "" }
                 if (ready && section != Section.BACKUP) ExtendedFloatingActionButton(
                     modifier = Modifier.semantics { contentDescription = actionLabel },
                     onClick = {
@@ -214,7 +249,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
                 )
             }
             Section.THOUGHTS -> data.thoughts.firstOrNull { it.id == id }?.let { thought ->
-                RecordDeletion("Удалить мысль?", thought.text, delete = { vm.delete(thought) {} })
+                RecordDeletion("Удалить заметку?", thought.title.ifBlank { thought.text }, delete = { vm.delete(thought) {} })
             }
             Section.MEDIA -> data.media.firstOrNull { it.id == id }?.let { item ->
                 val question = when (item.kind) {
@@ -236,12 +271,17 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
 
     if (themePicker) ThemePicker { themePicker = false }
     when (appPanel) {
-        AppPanel.ABOUT -> AboutAppDialog(onHolidays = { appPanel = AppPanel.HOLIDAYS }, onDismiss = { appPanel = null })
+        AppPanel.ABOUT -> AboutAppDialog(
+            onHolidays = { appPanel = AppPanel.HOLIDAYS },
+            onReminders = { appPanel = AppPanel.REMINDERS },
+            onDismiss = { appPanel = null },
+        )
         AppPanel.HOLIDAYS -> HolidaySettingsDialog(
             holidaySettings, holidays, savingHolidays, holidayVm::saveSettings,
             onRefresh = { holidayVm.loadYear(calendarYear, force = true) },
             onDismiss = { appPanel = AppPanel.ABOUT },
         )
+        AppPanel.REMINDERS -> ReminderSettingsDialog { appPanel = AppPanel.ABOUT }
         null -> Unit
     }
     if (holidaySettingsError) AlertDialog(onDismissRequest = holidayVm::clearSettingsError, title = { Text("Праздники России") }, text = { Text("Не удалось сохранить настройки. Попробуйте ещё раз.") }, confirmButton = { TextButton(onClick = holidayVm::clearSettingsError) { Text("Понятно") } })
@@ -296,7 +336,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel()) {
 }
 
 @Composable
-private fun AboutAppDialog(onHolidays: () -> Unit, onDismiss: () -> Unit) {
+private fun AboutAppDialog(onHolidays: () -> Unit, onReminders: () -> Unit, onDismiss: () -> Unit) {
     val browser = LocalUriHandler.current
     var browserError by remember { mutableStateOf(false) }
     AlertDialog(
@@ -306,7 +346,7 @@ private fun AboutAppDialog(onHolidays: () -> Unit, onDismiss: () -> Unit) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Версия ${stringResource(R.string.app_version)}", style = MaterialTheme.typography.labelMedium, color = Muted)
-                Text("Личный календарь для событий и задач, мыслей и списка книг, фильмов и сериалов.")
+                Text("Личный календарь для событий и задач, заметок и списка книг, фильмов и сериалов.")
                 TextButton(onClick = {
                     browserError = runCatching { browser.openUri("https://github.com/PaLLIKaN/tihiy-den") }.isFailure
                 }) { Text("Репозиторий на GitHub") }
@@ -316,6 +356,11 @@ private fun AboutAppDialog(onHolidays: () -> Unit, onDismiss: () -> Unit) {
                     Icon(Icons.Outlined.EventAvailable, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Настройки праздников")
+                }
+                OutlinedButton(onClick = onReminders) {
+                    Icon(Icons.Outlined.Notifications, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Настройки уведомлений")
                 }
             }
         },

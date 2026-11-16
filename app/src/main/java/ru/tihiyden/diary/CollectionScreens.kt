@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.time.Instant
@@ -29,9 +30,12 @@ fun timestamp(value: Long): String = Instant.ofEpochMilli(value).atZone(ZoneId.s
 @Composable
 fun ThoughtsScreen(thoughts: List<Thought>, onEdit: (Thought) -> Unit, onDeleteRequest: ((Thought) -> Unit)? = null) {
     var query by rememberSaveable { mutableStateOf("") }
-    val filtered = remember(thoughts, query) { thoughts.filter { it.text.contains(query.trim(), ignoreCase = true) } }
+    val filtered = remember(thoughts, query) {
+        val term = query.trim()
+        thoughts.filter { it.title.contains(term, ignoreCase = true) || it.text.contains(term, ignoreCase = true) }
+    }
     Column {
-        SearchField(query, { query = it }, "Найти мысль")
+        SearchField(query, { query = it }, "Найти заметку")
         LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 108.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (filtered.isEmpty()) item {
                 EmptyState(Icons.Outlined.EditNote, if (query.isBlank()) "Пусть мысль останется" else "Ничего не нашлось",
@@ -43,7 +47,10 @@ fun ThoughtsScreen(thoughts: List<Thought>, onEdit: (Thought) -> Unit, onDeleteR
                     color = MaterialTheme.colorScheme.surfaceContainerLowest, shape = RecordCardShape,
                 ) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                        Text(thought.text, style = MaterialTheme.typography.bodyLarge, maxLines = 8, overflow = TextOverflow.Ellipsis)
+                        Text(thought.title.ifBlank { "Без заголовка" }, style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (thought.text.isNotBlank()) Text(thought.text, style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(top = 6.dp), maxLines = 8, overflow = TextOverflow.Ellipsis)
                         Text(timestamp(thought.createdAt), style = MaterialTheme.typography.labelSmall, color = Muted.copy(alpha = .75f), modifier = Modifier.padding(top = 16.dp))
                     }
                 }
