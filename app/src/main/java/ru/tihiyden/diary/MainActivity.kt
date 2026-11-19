@@ -80,11 +80,15 @@ enum class Section(val title: String, val subtitle: String, val icon: ImageVecto
     BACKUP("Резервная копия", "Сохранить и перенести свои записи", Icons.Outlined.CloudUpload),
 }
 
-private enum class AppPanel { ABOUT, HOLIDAYS, REMINDERS }
+private enum class AppPanel { ABOUT, HOLIDAYS, REMINDERS, QUOTES }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiaryApp(vm: DiaryViewModel = viewModel(), reminder: Intent? = null, onReminderOpened: () -> Unit = {}) {
+    val quoteVm: QuoteViewModel = viewModel()
+    val quoteMode by quoteVm.mode.collectAsStateWithLifecycle()
+    val savingQuote by quoteVm.saving.collectAsStateWithLifecycle()
+    val quoteError by quoteVm.error.collectAsStateWithLifecycle()
     val holidayVm: HolidayViewModel = viewModel()
     val holidaySettings by holidayVm.settings.collectAsStateWithLifecycle()
     val holidays by holidayVm.state.collectAsStateWithLifecycle()
@@ -128,7 +132,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel(), reminder: Intent? = null, onRemin
         when {
             task != null -> {
                 sectionName = Section.CALENDAR.name
-                selectedDay = (task.dueDate ?: task.date).toString()
+                selectedDay = task.date.toString()
                 entryEditor = task
             }
             media != null -> {
@@ -218,7 +222,12 @@ fun DiaryApp(vm: DiaryViewModel = viewModel(), reminder: Intent? = null, onRemin
                     Text(section.title, style = MaterialTheme.typography.displaySmall, fontFamily = FontFamily.Serif)
                     Spacer(Modifier.height(6.dp))
                     if (section == Section.CALENDAR) {
-                        Text("«${quoteForDay(today)}»", style = MaterialTheme.typography.bodyMedium, color = Sage)
+                        val quote = remember(today, quoteMode) { quoteForDay(today, quoteMode) }
+                        Text("«${quote.text}»", style = MaterialTheme.typography.bodyMedium, color = Sage)
+                        if (quote.author.isNotBlank()) {
+                            Text(quote.author, style = MaterialTheme.typography.labelMedium, color = Muted,
+                                modifier = Modifier.padding(top = 5.dp))
+                        }
                         Text("Цитата дня · " + today.format(java.time.format.DateTimeFormatter.ofPattern("d MMMM", Russian)),
                             style = MaterialTheme.typography.labelSmall, color = Muted, modifier = Modifier.padding(top = 5.dp))
                     } else Text(section.subtitle, style = MaterialTheme.typography.bodyMedium, color = Muted)
@@ -274,6 +283,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel(), reminder: Intent? = null, onRemin
         AppPanel.ABOUT -> AboutAppDialog(
             onHolidays = { appPanel = AppPanel.HOLIDAYS },
             onReminders = { appPanel = AppPanel.REMINDERS },
+            onQuotes = { appPanel = AppPanel.QUOTES },
             onDismiss = { appPanel = null },
         )
         AppPanel.HOLIDAYS -> HolidaySettingsDialog(
@@ -282,6 +292,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel(), reminder: Intent? = null, onRemin
             onDismiss = { appPanel = AppPanel.ABOUT },
         )
         AppPanel.REMINDERS -> ReminderSettingsDialog { appPanel = AppPanel.ABOUT }
+        AppPanel.QUOTES -> QuoteSettingsDialog(quoteMode, today, savingQuote, quoteError, quoteVm::save) { appPanel = AppPanel.ABOUT }
         null -> Unit
     }
     if (holidaySettingsError) AlertDialog(onDismissRequest = holidayVm::clearSettingsError, title = { Text("Праздники России") }, text = { Text("Не удалось сохранить настройки. Попробуйте ещё раз.") }, confirmButton = { TextButton(onClick = holidayVm::clearSettingsError) { Text("Понятно") } })
@@ -336,7 +347,7 @@ fun DiaryApp(vm: DiaryViewModel = viewModel(), reminder: Intent? = null, onRemin
 }
 
 @Composable
-private fun AboutAppDialog(onHolidays: () -> Unit, onReminders: () -> Unit, onDismiss: () -> Unit) {
+private fun AboutAppDialog(onHolidays: () -> Unit, onReminders: () -> Unit, onQuotes: () -> Unit, onDismiss: () -> Unit) {
     val browser = LocalUriHandler.current
     var browserError by remember { mutableStateOf(false) }
     AlertDialog(
@@ -361,6 +372,11 @@ private fun AboutAppDialog(onHolidays: () -> Unit, onReminders: () -> Unit, onDi
                     Icon(Icons.Outlined.Notifications, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Настройки уведомлений")
+                }
+                OutlinedButton(onClick = onQuotes) {
+                    Icon(Icons.Outlined.FormatQuote, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Настройки цитат")
                 }
             }
         },

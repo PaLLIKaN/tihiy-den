@@ -131,7 +131,7 @@ class TaskPlanningUiTest {
 
                     selectDay(14)
                     scrollTo(task.title)
-                    text("Срок · 15 ноября, 18:00")
+                    text("Срок · 15 ноября")
                     scrollTo(normal.title)
                     selectDay(14)
                     click(scrollTo("Фильтры задач"))

@@ -223,7 +223,7 @@ fun CalendarScreen(entries: List<DayEntry>, selected: LocalDate, onSelect: (Loca
                             entry.dueDate?.let { due ->
                                 val pattern = if (due.year == selected.year) "d MMMM" else "d MMMM yyyy"
                                 val deadline = due.format(DateTimeFormatter.ofPattern(pattern, Russian))
-                                Text("Срок · $deadline, ${entry.dueTime ?: DefaultDueTime}", style = MaterialTheme.typography.labelSmall, color = Muted)
+                                Text("Срок · $deadline", style = MaterialTheme.typography.labelSmall, color = Muted)
                             }
                         }
                     }

@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -22,6 +23,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun ReminderSettingsDialog(onDismiss: () -> Unit) {
@@ -29,6 +32,8 @@ internal fun ReminderSettingsDialog(onDismiss: () -> Unit) {
     var settings by remember { mutableStateOf(ReminderScheduler.readSettings(context)) }
     var allowed by remember { mutableStateOf(ReminderScheduler.canNotify(context)) }
     var exact by remember { mutableStateOf(ReminderScheduler.canScheduleExactly(context)) }
+    var taskChannel by remember { mutableStateOf(ReminderScheduler.taskChannelEnabled(context)) }
+    var testMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsError by remember { mutableStateOf(false) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         allowed = ReminderScheduler.canNotify(context)
@@ -37,6 +42,7 @@ internal fun ReminderSettingsDialog(onDismiss: () -> Unit) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         allowed = ReminderScheduler.canNotify(context)
         exact = ReminderScheduler.canScheduleExactly(context)
+        taskChannel = ReminderScheduler.taskChannelEnabled(context)
     }
 
     fun update(value: ReminderSettings) {
@@ -54,7 +60,7 @@ internal fun ReminderSettingsDialog(onDismiss: () -> Unit) {
         title = { Text("Уведомления") },
         text = {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ReminderSwitch("Сроки задач", settings.tasks) { update(settings.copy(tasks = it)) }
+                ReminderSwitch("Напоминания о задачах", settings.tasks) { update(settings.copy(tasks = it)) }
                 if (settings.tasks) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(1 to "За 1 час", 2 to "За 2 часа").forEach { (hours, label) ->
@@ -62,14 +68,30 @@ internal fun ReminderSettingsDialog(onDismiss: () -> Unit) {
                                 label = { Text(label) })
                         }
                     }
-                    Text("Напоминания приходят по срокам незавершённых задач. Если время срока не задано, используется $DefaultDueTime.",
+                    Text("Уведомления приходят за выбранное время до начала задачи и ещё раз в момент начала. Укажите время начала в редакторе задачи.",
                         style = MaterialTheme.typography.bodySmall)
+                    if (allowed && !taskChannel) {
+                        Text("В Android отключена категория напоминаний о задачах.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { open(ReminderScheduler.taskChannelSettings(context)) }) {
+                            Text("Открыть категорию уведомлений")
+                        }
+                    }
                     if (Build.VERSION.SDK_INT >= 31 && allowed && !exact) {
                         Text("Без доступа к точным напоминаниям Android может доставить уведомление позже.",
                             style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = {
                             open(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.fromParts("package", context.packageName, null)))
                         }) { Text("Разрешить точные напоминания") }
+                    }
+                    if (allowed && taskChannel) {
+                        TextButton(onClick = {
+                            val at = runCatching { ReminderScheduler.scheduleTest(context) }.getOrNull()
+                            testMessage = if (at == null) "Не удалось запланировать проверку." else {
+                                val displayTime = at.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm", Russian))
+                                "Проверка запланирована на $displayTime. Сверните приложение и заблокируйте экран."
+                            }
+                        }) { Text("Проверить через минуту") }
+                        testMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     }
                 }
                 HorizontalDivider()

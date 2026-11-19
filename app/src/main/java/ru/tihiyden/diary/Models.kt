@@ -1,7 +1,6 @@
 package ru.tihiyden.diary
 
 import java.time.LocalDate
-import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.YearMonth
 import java.util.UUID
@@ -9,7 +8,6 @@ import java.util.UUID
 enum class EntryKind(val label: String) { TASK("Задача"), EVENT("Событие") }
 enum class TaskPriority(val label: String) { LOW("Низкий"), NORMAL("Обычный"), HIGH("Высокий") }
 enum class TaskStatus(val label: String) { ALL("Все"), OPEN("В работе"), DONE("Выполнены") }
-val DefaultDueTime: LocalTime = LocalTime.of(18, 0)
 
 data class TaskFilter(val status: TaskStatus = TaskStatus.ALL, val priority: TaskPriority? = null) {
     val labels: List<String> get() = listOfNotNull(status.takeUnless { it == TaskStatus.ALL }?.label, priority?.label)
@@ -42,10 +40,9 @@ data class DayEntry(
     val done: Boolean = false,
     val priority: TaskPriority = TaskPriority.NORMAL,
     val dueDate: LocalDate? = null,
-    val dueTime: LocalTime? = null,
+    val dueTime: LocalTime? = null, // Legacy field retained for earlier backups.
 ) {
     val lastDay: LocalDate get() = if (kind == EntryKind.TASK) dueDate ?: date else date
-    val deadline: LocalDateTime? get() = dueDate?.atTime(dueTime ?: DefaultDueTime)
     fun occursOn(day: LocalDate): Boolean = day >= date && day <= lastDay
 
     fun validateSchedule() {

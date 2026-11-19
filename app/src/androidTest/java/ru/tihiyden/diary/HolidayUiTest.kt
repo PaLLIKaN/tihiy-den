@@ -235,15 +235,49 @@ class HolidayUiTest {
                 click(awaitNode { it.contentDescription?.toString() == "О приложении" })
                 click(text("Настройки уведомлений"))
                 text("Уведомления")
-                click(text("Сроки задач"))
+                click(text("Напоминания о задачах"))
                 click(text("За 2 часа"))
                 click(text("Совет на выходные"))
                 assertEquals(ReminderSettings(tasks = true, leadHours = 2, weekend = true), ReminderScheduler.readSettings(context))
-                click(text("Сроки задач"))
+                click(text("Напоминания о задачах"))
                 assertEquals(ReminderSettings(leadHours = 2, weekend = true), ReminderScheduler.readSettings(context))
                 click(text("Готово"))
                 text("Репозиторий на GitHub")
             }
         } finally { ReminderScheduler.saveSettings(context, original) }
+    }
+
+    @Test fun quoteModeChangesCalendarAndSurvivesRecreation() {
+        val context = instrumentation.targetContext
+        val preferences = QuotePreferences(context)
+        val original = preferences.read()
+        val today = LocalDate.now()
+        fun openQuotes() {
+            click(awaitNode { it.contentDescription?.toString() == "О приложении" })
+            text("Репозиторий на GitHub")
+            click(scrollTo("Настройки цитат"))
+            text("Цитаты")
+        }
+        try {
+            assertTrue(preferences.save(QuoteMode.DAILY))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                text("«${quoteForDay(today)}»")
+                openQuotes()
+                click(text("Цитаты личностей"))
+                val quote = quoteForDay(today, QuoteMode.PEOPLE)
+                text(quote.author)
+                assertEquals(QuoteMode.PEOPLE, preferences.read())
+                click(text("Готово"))
+                click(text("Закрыть"))
+                text("«${quote.text}»")
+                text(quote.author)
+                scenario.recreate()
+                text(quote.author)
+                openQuotes()
+                click(text("Вперемешку"))
+                text("«${quoteForDay(today, QuoteMode.MIXED).text}»")
+                assertEquals(QuoteMode.MIXED, preferences.read())
+            }
+        } finally { assertTrue(preferences.save(original)) }
     }
 }

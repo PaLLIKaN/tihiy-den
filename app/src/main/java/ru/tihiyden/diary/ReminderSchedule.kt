@@ -4,6 +4,8 @@ import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 
@@ -15,18 +17,40 @@ internal data class ReminderSettings(
 
 internal data class TaskReminder(
     val task: DayEntry,
-    val deadline: Instant,
+    val target: Instant,
     val trigger: Instant,
-    val deadlineKey: String,
+    val targetKey: String,
+    val phase: ReminderPhase,
 )
 
-internal fun taskReminders(entries: List<DayEntry>, now: Instant, zone: ZoneId, leadHours: Int): List<TaskReminder> =
-    entries.mapNotNull { task ->
-        if (task.kind != EntryKind.TASK) return@mapNotNull null
-        val localDeadline = task.deadline ?: return@mapNotNull null
-        val deadline = localDeadline.atZone(zone).toInstant()
-        if (deadline <= now) return@mapNotNull null
-        TaskReminder(task, deadline, deadline.minus(Duration.ofHours(leadHours.toLong())), localDeadline.toString())
+internal enum class ReminderPhase { ADVANCE, START }
+
+internal val DayEntry.reminderTarget: LocalDateTime?
+    get() {
+        if (kind != EntryKind.TASK) return null
+        return time.takeIf(String::isNotBlank)
+            ?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+            ?.let(date::atTime)
+    }
+
+internal fun taskReminders(
+    entries: List<DayEntry>,
+    now: Instant,
+    zone: ZoneId,
+    leadHours: Int,
+    armedAt: Instant? = null,
+): List<TaskReminder> =
+    entries.flatMap { task ->
+        val localTarget = task.reminderTarget ?: return@flatMap emptyList()
+        val target = localTarget.atZone(zone).toInstant()
+        val trigger = target.minus(Duration.ofHours(leadHours.toLong()))
+        val key = localTarget.toString()
+        if (target > now) listOf(
+            TaskReminder(task, target, trigger, key, ReminderPhase.ADVANCE),
+            TaskReminder(task, target, target, key, ReminderPhase.START),
+        ) else if (armedAt != null && target >= armedAt && now < target.plus(Duration.ofHours(1))) {
+            listOf(TaskReminder(task, target, target, key, ReminderPhase.START))
+        } else emptyList()
     }
 
 internal fun weekendReminderDate(today: LocalDate, lastDelivered: String?): LocalDate {

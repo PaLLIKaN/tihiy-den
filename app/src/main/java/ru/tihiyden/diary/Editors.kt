@@ -79,21 +79,21 @@ fun EntryEditor(entry: DayEntry, saving: Boolean, onDismiss: () -> Unit, onSave:
     var kindName by rememberSaveable(entry.id) { mutableStateOf(entry.kind.name) }
     var priorityName by rememberSaveable(entry.id) { mutableStateOf(entry.priority.name) }
     var dueDateText by rememberSaveable(entry.id) { mutableStateOf(entry.dueDate?.toString()) }
-    var dueTimeText by rememberSaveable(entry.id) { mutableStateOf(entry.dueTime?.toString()) }
     val date = LocalDate.parse(dateText)
     val kind = EntryKind.valueOf(kindName)
     val isTask = kind == EntryKind.TASK
     val priority = if (isTask) TaskPriority.valueOf(priorityName) else TaskPriority.NORMAL
     val dueDate = if (isTask) dueDateText?.let(LocalDate::parse) else null
-    val dueTime = dueDate?.let { dueTimeText?.let(LocalTime::parse) }
     val validDueDate = dueDate == null || dueDate >= date
     val dateFormat = remember { DateTimeFormatter.ofPattern("d MMMM yyyy", Russian) }
     val context = LocalContext.current
+    val reminderSettings = remember(context) { ReminderScheduler.readSettings(context) }
+    val draft = entry.copy(title = title.trim(), details = details.trim(), date = date, time = time, kind = kind,
+        done = isTask && entry.done, priority = priority, dueDate = dueDate, dueTime = entry.dueTime.takeIf { dueDate != null })
     val dirty = title != entry.title || details != entry.details || date != entry.date || time != entry.time || kind != entry.kind ||
-        priority != entry.priority || dueDate != entry.dueDate || dueTime != entry.dueTime
+        priority != entry.priority || dueDate != entry.dueDate
     EditorFrame(if (onDelete == null) "Новое дело" else "Ваше дело", title.isNotBlank() && validDueDate, dirty, saving, onDismiss,
-        { onSave(entry.copy(title = title.trim(), details = details.trim(), date = date, time = time, kind = kind,
-            done = isTask && entry.done, priority = priority, dueDate = dueDate, dueTime = dueTime)) }, onDelete) {
+        { onSave(draft) }, onDelete) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             EntryKind.entries.forEach { item -> FilterChip(selected = item == kind, onClick = { kindName = item.name }, label = { Text(item.label) }) }
         }
@@ -121,17 +121,7 @@ fun EntryEditor(entry: DayEntry, saving: Boolean, onDismiss: () -> Unit, onSave:
                     }
                     if (dueDate != null) IconButton(onClick = {
                         dueDateText = null
-                        dueTimeText = null
                     }) { Icon(Icons.Outlined.Close, "Убрать срок") }
-                }
-                if (dueDate != null) OutlinedButton(onClick = {
-                    val initial = dueTime ?: DefaultDueTime
-                    TimePickerDialog(context, { _, hour, minute -> dueTimeText = LocalTime.of(hour, minute).toString() },
-                        initial.hour, initial.minute, true).show()
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Outlined.Schedule, null)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Время срока · ${dueTime ?: DefaultDueTime}")
                 }
                 Text(if (validDueDate) "Задача видна с даты начала по срок включительно." else "Срок не может быть раньше даты начала.",
                     style = MaterialTheme.typography.bodySmall, color = if (validDueDate) Muted else MaterialTheme.colorScheme.error)
@@ -152,9 +142,20 @@ fun EntryEditor(entry: DayEntry, saving: Boolean, onDismiss: () -> Unit, onSave:
             }, modifier = Modifier.weight(1f)) {
                 Icon(Icons.Outlined.Schedule, null)
                 Spacer(Modifier.width(10.dp))
-                Text(time.ifBlank { "Без времени" })
+                Text(if (isTask) {
+                    if (time.isBlank()) "Указать время начала" else "Время начала · $time"
+                } else time.ifBlank { "Без времени" })
             }
             if (time.isNotBlank()) IconButton(onClick = { time = "" }) { Icon(Icons.Outlined.Close, "Убрать время") }
+        }
+        draft.reminderTarget?.takeIf { !draft.done && validDueDate }?.let { target ->
+            val text = if (reminderSettings.tasks) {
+                val hours = reminderSettings.leadHours
+                val at = target.atZone(ZoneId.systemDefault()).minusHours(hours.toLong())
+                val format = DateTimeFormatter.ofPattern("d MMMM 'в' HH:mm", Russian)
+                "Напоминания · ${at.format(format)} и в момент начала"
+            } else "Напоминания о задачах выключены"
+            Text(text, style = MaterialTheme.typography.bodySmall, color = Muted)
         }
         OutlinedTextField(details, { details = it }, label = { Text("Подробности") }, placeholder = { Text("Что хочется не забыть?") }, modifier = Modifier.fillMaxWidth(), minLines = 4)
     }

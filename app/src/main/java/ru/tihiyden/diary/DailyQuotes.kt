@@ -67,3 +67,76 @@ internal val dailyQuotes = listOf(
 )
 
 fun quoteForDay(date: LocalDate): String = dailyQuotes[Math.floorMod(date.toEpochDay(), dailyQuotes.size.toLong()).toInt()]
+
+internal enum class QuoteMode(val label: String, val description: String) {
+    DAILY("Цитаты дня", "Короткие фразы из «Тихого дня»"),
+    PEOPLE("Цитаты личностей", "Писатели, философы и исторические деятели"),
+    MIXED("Вперемешку", "Обе подборки чередуются по дням"),
+}
+
+internal data class CalendarQuote(
+    val text: String,
+    val author: String = "",
+    val work: String = "",
+    val sourceUrl: String = "",
+    val translation: String = "",
+)
+
+internal val personalityQuotes = (listOf(
+    CalendarQuote("В человеке должно быть все прекрасно: и лицо, и одежда, и душа, и мысли.",
+        "Антон Чехов", "«Дядя Ваня», действие II, слова Астрова",
+        "https://ru.wikisource.org/wiki/Дядя_Ваня_(Чехов)/Действие_второе"),
+    CalendarQuote("Если жизнь тебя обманет, не печалься, не сердись!",
+        "Александр Пушкин", "«Если жизнь тебя обманет…»",
+        "https://ru.wikisource.org/wiki/Если_жизнь_тебя_обманет_(Пушкин)"),
+    CalendarQuote("Для ясных дней, для новых откровений переболит скорбящая душа.",
+        "Афанасий Фет", "«Учись у них — у дуба, у берёзы…»",
+        "https://ru.wikisource.org/wiki/Учись_у_них_—_у_дуба,_у_берёзы_(Фет)"),
+    CalendarQuote("Ученье свет, неученье — тьма.",
+        "Александр Суворов", "«Наука побеждать», раздел XV",
+        "https://ru.wikisource.org/wiki/Наука_побеждать_(Суворов)"),
+    CalendarQuote("Пока мы откладываем, жизнь проходит.",
+        "Сенека", "«Нравственные письма к Луцилию», письмо 1, § 2",
+        "https://en.wikisource.org/wiki/Moral_letters_to_Lucilius/Letter_1", "Перевод для приложения с английского перевода Р. Гаммера"),
+    CalendarQuote("Одни вещи зависят от нас, другие — нет.",
+        "Эпиктет", "«Энхиридион», § 1",
+        "https://classics.mit.edu/Epictetus/epicench.html", "Перевод для приложения с английского перевода Э. Картер"),
+    CalendarQuote("Лучший способ отомстить — не уподобляться обидчику.",
+        "Марк Аврелий", "«Размышления», VI, 6",
+        "https://classics.mit.edu/Antoninus/meditations.6.six.html", "Перевод для приложения с английского перевода Дж. Лонга"),
+    CalendarQuote("А Ларчик просто открывался.",
+        "Иван Крылов", "«Ларчик»",
+        "https://ru.wikisource.org/wiki/Ларчик_(Крылов)"),
+    CalendarQuote("Поэт — величина неизменная.",
+        "Александр Блок", "«О назначении поэта»",
+        "https://ru.wikisource.org/wiki/О_назначении_поэта_(Блок)"),
+    CalendarQuote("Все мгновенно, все пройдет; что пройдет, то будет мило.",
+        "Александр Пушкин", "«Если жизнь тебя обманет…»",
+        "https://ru.wikisource.org/wiki/Если_жизнь_тебя_обманет_(Пушкин)"),
+    CalendarQuote("Ничто, Луцилий, не принадлежит нам, кроме времени.",
+        "Сенека", "«Нравственные письма к Луцилию», письмо 1, § 3",
+        "https://en.wikisource.org/wiki/Moral_letters_to_Lucilius/Letter_1", "Перевод для приложения с английского перевода Р. Гаммера"),
+    CalendarQuote("Приучай себя внимательно слушать слова другого и по возможности вникать в мысли говорящего.",
+        "Марк Аврелий", "«Размышления», VI, 53",
+        "https://classics.mit.edu/Antoninus/meditations.6.six.html", "Перевод для приложения с английского перевода Дж. Лонга"),
+    CalendarQuote("Дело мастера боится.",
+        "Александр Суворов", "«Наука побеждать», раздел XV",
+        "https://ru.wikisource.org/wiki/Наука_побеждать_(Суворов)"),
+    CalendarQuote("При каждом происшествии спрашивай себя, какие способности помогут тебе им воспользоваться.",
+        "Эпиктет", "«Энхиридион», § 10",
+        "https://classics.mit.edu/Epictetus/epicench.html", "Перевод для приложения с английского перевода Э. Картер"),
+) + additionalPersonalityQuotes).shuffled(kotlin.random.Random(1000))
+
+internal fun quoteForDay(date: LocalDate, mode: QuoteMode): CalendarQuote {
+    val day = date.toEpochDay()
+    return when (mode) {
+        QuoteMode.DAILY -> CalendarQuote(quoteForDay(date))
+        QuoteMode.PEOPLE -> personalityQuotes[Math.floorMod(day, personalityQuotes.size.toLong()).toInt()]
+        QuoteMode.MIXED -> {
+            val sequence = Math.floorDiv(day, 2)
+            if (Math.floorMod(day, 2L) == 0L) {
+                CalendarQuote(dailyQuotes[Math.floorMod(sequence, dailyQuotes.size.toLong()).toInt()])
+            } else personalityQuotes[Math.floorMod(sequence, personalityQuotes.size.toLong()).toInt()]
+        }
+    }
+}
